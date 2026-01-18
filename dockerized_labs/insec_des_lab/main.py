@@ -1,6 +1,8 @@
 from flask import Flask, render_template, request, make_response
 import pickle
 import base64
+# Usar JSON en lugar de pickle
+import json
 from dataclasses import dataclass
 
 app = Flask(__name__)
@@ -33,8 +35,25 @@ def deserialize_data():
         serialized_data = request.form.get('serialized_data', '')
         decoded_data = base64.b64decode(serialized_data)
         # Intentionally vulnerable deserialization, matching PyGoat
-        user = pickle.loads(decoded_data)
+        # user = pickle.loads(decoded_data)
         
+        user_data = json.loads(decoded_data)
+        
+        # Validar que username sea string y no esté vacío
+        username = user_data.get('username')
+        if not username or not isinstance(username, str):
+            return render_template('result.html', message="Invalid username")
+        
+        # Validar que is_admin sea booleano
+        is_admin = user_data.get('is_admin')
+        if not isinstance(is_admin, bool):
+            return render_template('result.html', message="is_admin must be true or false (boolean)")
+
+        # Crear objeto User
+        user = User()
+        user.username = username
+        user.is_admin = is_admin
+
         if isinstance(user, User):
             if user.is_admin:
                 message = f"Welcome Admin {user.username}! Here's the secret admin content: ADMIN_KEY_123"
