@@ -10,6 +10,7 @@ import re
 import string
 import subprocess
 import uuid
+import secrets
 from dataclasses import dataclass
 from hashlib import md5
 from io import BytesIO
@@ -486,7 +487,8 @@ def login_otp(request):
 def Otp(request):
     if request.method=="GET":
         email=request.GET.get('email')
-        otpN=randint(100,999)
+        #otpN=randint(100,999)
+        otpN = secrets.randbelow(900) + 100
         if email and otpN:
             if email=="admin@pygoat.com":
                 otp.objects.filter(id=2).update(otp=otpN)
