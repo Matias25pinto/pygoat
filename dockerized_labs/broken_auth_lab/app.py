@@ -4,6 +4,10 @@ import json
 from datetime import datetime, timedelta
 import base64
 import os
+import secrets
+import hashlib
+from datetime import datetime, timedelta
+import time
 
 app = Flask(__name__)
 #app.secret_key = 'your-secret-key-here'  # Vulnerable: Hardcoded secret key
@@ -85,8 +89,17 @@ def reset_password():
     for username, user_data in users.items():
         if user_data['email'] == email:
             # Vulnerable: Predictable token generation
-            token = hashlib.md5(f"{email}:{datetime.now()}".encode()).hexdigest()
-            password_reset_tokens[token] = username
+            #token = hashlib.md5(f"{email}:{datetime.now()}".encode()).hexdigest()
+            #password_reset_tokens[token] = username
+
+            token = secrets.token_urlsafe(32)  # Token criptográficamente seguro
+            token_hash = hashlib.sha256(token.encode()).hexdigest()
+            expires_at = datetime.now() + timedelta(hours=1)
+            password_reset_tokens[token_hash] = {
+                'username': username,
+                'expires_at': expires_at.timestamp(),
+                'used': False
+            }
             
             # In a real application, this would send an email
             # Vulnerable: Token exposed in response
@@ -98,9 +111,22 @@ def reset_password():
 
 @app.route('/reset/<token>')
 def reset_form(token):
-    if token in password_reset_tokens:
-        return render_template('reset.html', token=token)
-    return 'Invalid token'
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    
+    if token_hash in password_reset_tokens:
+        token_data = password_reset_tokens[token_hash]
+        
+        if datetime.now().timestamp() > token_data['expires_at']:
+            del password_reset_tokens[token_hash]
+            return 'El token ha expirado'
+        
+        if token_data['used']:
+            return 'Este token ya fue utilizado'
+        
+        # Token válido, mostrar formulario
+        return render_template('reset.html', token=raw_token)
+    
+    return 'Token inválido'
 
 @app.route('/dashboard')
 def dashboard():
