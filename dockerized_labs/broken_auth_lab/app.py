@@ -3,9 +3,11 @@ import hashlib
 import json
 from datetime import datetime, timedelta
 import base64
+import os
 
 app = Flask(__name__)
-app.secret_key = 'your-secret-key-here'  # Vulnerable: Hardcoded secret key
+#app.secret_key = 'your-secret-key-here'  # Vulnerable: Hardcoded secret key
+app.secret_key = os.environ['SECRET_KEY'] 
 
 # Vulnerable: Storing user data in memory
 users = {
