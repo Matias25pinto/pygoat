@@ -106,4 +106,16 @@ pipeline {
             }
         }
     }
+
+    post {
+        success {
+            echo "✓ Pipeline completado exitosamente"
+        }
+        unstable {
+            echo "⚠ Pipeline completado con advertencias"
+        }
+        failure {
+            echo "✗ Pipeline falló"
+        }
+    }
 }
