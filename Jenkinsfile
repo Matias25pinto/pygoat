@@ -6,7 +6,7 @@ pipeline {
         stage('Checkout') {
             steps {
                 echo "Obteniendo el código desde GitHub..."
-                sh 'rm -rf dvwa || true'
+                sh 'rm -rf pygoat || true'
                 sh 'git clone https://github.com/Matias25pinto/pygoat/tree/ejercicio-2 pygoat'
                 // Stash para compartir el código entre stages con diferentes agentes
                 stash name: 'pygoat-code', includes: 'pygoat/**'
