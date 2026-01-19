@@ -88,7 +88,7 @@ pipeline {
                     // Generar SBOM desde requirements.txt
                     sh '''
                         cd pygoat
-                        cyclonedx-py requirements requirements.txt -o ../bom.xml
+                        cyclonedx-py requirements requirements.txt -o ../bom.json
                     '''
 
                     // Subir SBOM a Dependency-Track
@@ -98,11 +98,11 @@ pipeline {
                         -F "projectName=$PROJECT_NAME" \
                         -F "projectVersion=$PROJECT_VERSION" \
                         -F "autoCreate=true" \
-                        -F "bom=@bom.xml"
+                        -F "bom=@bom.json"
                     '''
                 }
 
-                archiveArtifacts artifacts: 'bom.xml', fingerprint: true
+                archiveArtifacts artifacts: 'bom.json', fingerprint: true
             }
         }
     }
