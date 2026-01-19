@@ -88,7 +88,7 @@ pipeline {
                     // Generar SBOM
                     sh '''
                         cd pygoat
-                        cyclonedx-py -r -o bom.xml
+                        cyclonedx-py requirements -r requirements.txt -o bom.xml
                         mv bom.xml ..
                     '''
 
