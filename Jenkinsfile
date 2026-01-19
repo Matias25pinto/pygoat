@@ -38,7 +38,7 @@ pipeline {
                         // Ejecutar Bandit en el directorio pygoat
                         sh '''
                             cd pygoat
-                            bandit -r . -f json -o reporte_bandit.json --error .
+                            bandit -r . -f json -o reporte_bandit.json
                         '''
                     } catch (err) {
                         unstable(message: "Bandit encontró hallazgos de seguridad")
