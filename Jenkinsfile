@@ -85,7 +85,7 @@ pipeline {
                     sh 'apt-get update && apt-get install -qq -y git curl'
                     sh 'pip install -q cyclonedx-bom'
 
-                    // Generar SBOM
+                    // Generar SBOM desde requirements.txt
                     sh '''
                         cd pygoat
                         cyclonedx-py requirements requirements.txt -o bom.xml
