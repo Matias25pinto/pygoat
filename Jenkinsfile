@@ -64,5 +64,47 @@ pipeline {
                 }
             }
         }
+
+        stage('SCA - Dependency-Track') {
+            agent {
+                docker {
+                    image 'python:3.11-slim'
+                    args '-u root'
+                }
+            }
+            environment {
+                DTRACK_URL = 'http://dtrack-api:8080'
+                DTRACK_API_KEY = credentials('dependency-track-api-key')
+                PROJECT_NAME = 'pygoat'
+                PROJECT_VERSION = 'ejercicio-2'
+            }
+            steps {
+                script {
+                    unstash 'pygoat-code'
+
+                    sh 'apt-get update && apt-get install -qq -y git curl'
+                    sh 'pip install -q cyclonedx-bom'
+
+                    // Generar SBOM
+                    sh '''
+                        cd pygoat
+                        cyclonedx-py -r -o bom.xml
+                        mv bom.xml ..
+                    '''
+
+                    // Subir SBOM a Dependency-Track
+                    sh '''
+                        curl -s -X POST "$DTRACK_URL/api/v1/bom" \
+                        -H "X-Api-Key: $DTRACK_API_KEY" \
+                        -F "projectName=$PROJECT_NAME" \
+                        -F "projectVersion=$PROJECT_VERSION" \
+                        -F "autoCreate=true" \
+                        -F "bom=@bom.xml"
+                    '''
+                }
+
+                archiveArtifacts artifacts: 'bom.xml', fingerprint: true
+            }
+        }
     }
 }
