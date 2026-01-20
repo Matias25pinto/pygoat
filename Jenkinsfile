@@ -139,6 +139,7 @@ pipeline {
                 }
             }
         }
+    }
 
     post {
         success {
