@@ -82,14 +82,11 @@ pipeline {
                     echo "Verificando security gate para Bandit..."
                     
                     if (fileExists('reporte_bandit.json')) {
-                        // Leer el archivo JSON y parsearlo manualmente
                         def jsonContent = readFile('reporte_bandit.json').trim()
                         
-                        // Si el archivo está vacío o solo tiene {}
                         if (jsonContent == "{}" || jsonContent == "") {
                             echo "No hay hallazgos de Bandit"
                         } else {
-                            // Contar vulnerabilidades usando grep/sed (alternativa simple)
                             def criticalCount = sh(script: '''
                                 grep -c '"issue_severity": "CRITICAL"' reporte_bandit.json || true
                             ''', returnStdout: true).trim().toInteger()
@@ -103,7 +100,6 @@ pipeline {
                             echo "  - Vulnerabilidades ALTAS: ${highCount}"
                             
                             if (criticalCount > 0 || highCount > 0) {
-                                // Mostrar algunas vulnerabilidades encontradas
                                 sh '''
                                     echo "VULNERABILIDADES ENCONTRADAS:"
                                     echo "=== CRÍTICAS ==="
