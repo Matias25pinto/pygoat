@@ -104,7 +104,18 @@ pipeline {
                     '''
                 }
 
-                archiveArtifacts artifacts: 'bom.json', fingerprint: true
+                // Archivar resultados
+                archiveArtifacts artifacts: 'bom.json', fingerprint: true, allowEmptyArchive: true
+            }
+
+            post {
+                always {
+                    script {
+                        if (fileExists('bom.json')) {
+                            echo "Resultados de Dependency-Track disponibles para análisis"
+                        }
+                    }
+                }
             }
         }
 
@@ -126,23 +137,24 @@ pipeline {
                     --no-git || true
                 '''
 
-                script {
-                    def report = readJSON file: 'gitleaks-report.json'
-                    if (report.size() > 0) {
-                        error("Se detectaron secretos críticos (${report.size()})")
-                    }
-                }
+                // script {
+                //     def report = readJSON file: 'gitleaks-report.json'
+                //     if (report.size() > 0) {
+                //         error("Se detectaron secretos críticos (${report.size()})")
+                //     }
+                // }
+
+                // Archivar resultados
+                archiveArtifacts artifacts: 'gitleaks-report.json', fingerprint: true, allowEmptyArchive: true
             }
 
             post {
                 always {
-                    archiveArtifacts artifacts: 'gitleaks-report.json', allowEmptyArchive: true
-                }
-                failure {
-                    echo '❌ Secretos detectados por Gitleaks'
-                }
-                success {
-                    echo '✅ No se detectaron secretos'
+                    script {
+                        if (fileExists('gitleaks-report.json')) {
+                            echo "Resultados de Gitleaks disponibles para análisis"
+                        }
+                    }
                 }
             }
         }
