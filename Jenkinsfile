@@ -105,7 +105,6 @@ pipeline {
                 archiveArtifacts artifacts: 'bom.json', fingerprint: true
             }
         }
-    }
 
         stage('Secrets Scan - Gitleaks') {
             agent {
@@ -140,7 +139,7 @@ pipeline {
                 }
             }
         }
-
+    }
 
     post {
         success {
