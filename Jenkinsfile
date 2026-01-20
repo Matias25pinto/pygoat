@@ -107,6 +107,41 @@ pipeline {
         }
     }
 
+        stage('Secrets Scan - Gitleaks') {
+            agent {
+                docker {
+                    image 'zricethezav/gitleaks:latest'
+                    args '-u root'
+                }
+            }
+            steps {
+                script {
+                    unstash 'pygoat-code'
+
+                    // Ejecutar Gitleaks
+                    sh '''
+                        gitleaks detect \
+                        --source=pygoat \
+                        --report-format json \
+                        --report-path gitleaks-report.json \
+                        --no-git
+                    '''
+                }
+
+                archiveArtifacts artifacts: 'gitleaks-report.json', fingerprint: true
+            }
+
+            post {
+                failure {
+                    echo '❌ Secretos detectados por Gitleaks'
+                }
+                success {
+                    echo '✅ No se detectaron secretos'
+                }
+            }
+        }
+
+
     post {
         success {
             echo "✓ Pipeline completado exitosamente"
