@@ -257,11 +257,14 @@ pipeline {
                 }
             }
 
+            options {
+                skipDefaultCheckout(true)
+            }
+
             steps {
                 script {
                     unstash 'pygoat-code'
 
-                    // Ejecutar Gitleaks y capturar exit code
                     def exitCode = sh(
                         script: '''
                             gitleaks detect \
@@ -273,16 +276,14 @@ pipeline {
                         returnStatus: true
                     )
 
-                    // Archivar siempre el reporte
                     archiveArtifacts artifacts: 'gitleaks-report.json',
                                     fingerprint: true,
                                     allowEmptyArchive: true
 
-                    // Decidir qué hacer
                     if (exitCode != 0) {
-                        unstable("⚠ Gitleaks detectó secretos en el repositorio")
+                        unstable("Gitleaks detectó secretos")
                     } else {
-                        echo "✅ No se detectaron secretos"
+                        echo "No se detectaron secretos"
                     }
                 }
             }
