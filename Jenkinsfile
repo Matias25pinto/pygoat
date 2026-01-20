@@ -122,9 +122,16 @@ pipeline {
                     gitleaks detect \
                     --source=pygoat \
                     --report-format json \
-                    --report-path ../gitleaks-report.json \
-                    --no-git
+                    --report-path gitleaks-report.json \
+                    --no-git || true
                 '''
+
+                script {
+                    def report = readJSON file: 'gitleaks-report.json'
+                    if (report.size() > 0) {
+                        error("Se detectaron secretos críticos (${report.size()})")
+                    }
+                }
             }
 
             post {
