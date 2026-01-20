@@ -236,14 +236,14 @@ pipeline {
                             }
                         }
                         
-                        echo "📊 Métricas Dependency-Track:"
+                        echo "Métricas Dependency-Track:"
                         echo "  - Críticas: ${critical}"
                         echo "  - Altas: ${high}"
                         
                         if (critical > 0 || high > 0) {
                             error("SECURITY GATE FALLIDO: Dependency-Track reportó ${critical} críticas y ${high} altas")
                         } else {
-                            echo "✅ Security Gate: No hay vulnerabilidades críticas/altas en dependencias"
+                            echo "Security Gate: No hay vulnerabilidades críticas/altas en dependencias"
                         }
                     }
                 }
