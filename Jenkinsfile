@@ -112,27 +112,25 @@ pipeline {
             agent {
                 docker {
                     image 'zricethezav/gitleaks:latest'
-                    args '-u root'
+                    args '--entrypoint=""'
                 }
             }
             steps {
-                script {
-                    unstash 'pygoat-code'
+                unstash 'pygoat-code'
 
-                    // Ejecutar Gitleaks
-                    sh '''
-                        gitleaks detect \
-                        --source=pygoat \
-                        --report-format json \
-                        --report-path gitleaks-report.json \
-                        --no-git
-                    '''
-                }
-
-                archiveArtifacts artifacts: 'gitleaks-report.json', fingerprint: true
+                sh '''
+                    gitleaks detect \
+                    --source=pygoat \
+                    --report-format json \
+                    --report-path ../gitleaks-report.json \
+                    --no-git
+                '''
             }
 
             post {
+                always {
+                    archiveArtifacts artifacts: 'gitleaks-report.json', allowEmptyArchive: true
+                }
                 failure {
                     echo '❌ Secretos detectados por Gitleaks'
                 }
@@ -141,7 +139,6 @@ pipeline {
                 }
             }
         }
-    }
 
     post {
         success {
