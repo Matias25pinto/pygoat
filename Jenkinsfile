@@ -132,6 +132,7 @@ pipeline {
             agent {
                 docker {
                     image 'zricethezav/gitleaks:latest'
+                    args '--entrypoint=""'
                 }
             }
             steps {
