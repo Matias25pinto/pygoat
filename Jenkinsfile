@@ -60,9 +60,30 @@ pipeline {
                     sh 'test -f reporte_bandit.json || echo "{}" > reporte_bandit.json'
                     sh 'ls -la reporte_bandit.json'
                 }
-                
                 // Archivar resultados
                 archiveArtifacts artifacts: 'reporte_bandit.json', fingerprint: true, allowEmptyArchive: true
+            }
+
+            steps {
+                script {
+                    // Analizar reporte_bandit.json y fallar si hay HIGH/CRITICAL
+                    if (fileExists('reporte_bandit.json')) {
+                        def banditData = readJSON file: 'reporte_bandit.json'
+                        def criticalHigh = banditData.results.findAll { 
+                            it.issue_severity in ['HIGH', 'CRITICAL'] 
+                        }
+                        
+                        if (criticalHigh.size() > 0) {
+                            echo "❌ ENCONTRADAS ${criticalHigh.size()} VULNERABILIDADES CRÍTICAS/ALTAS"
+                            criticalHigh.each { vuln ->
+                                echo "  - ${vuln.issue_severity}: ${vuln.issue_text} en ${vuln.filename}"
+                            }
+                            error("Security Gate falló: Vulnerabilidades críticas/altas detectadas")
+                        } else {
+                            echo "✅ Bandit: No se encontraron vulnerabilidades críticas/altas"
+                        }
+                    }
+                }
             }
             
             post {
@@ -139,7 +160,7 @@ pipeline {
             agent {
                 docker {
                     image 'zricethezav/gitleaks:latest'
-                    args '--entrypoint=""'
+                    args '--entrypoint=""' //Si se elimina esto bloquea si existe vulnerabilidades
                 }
             }
             steps {
