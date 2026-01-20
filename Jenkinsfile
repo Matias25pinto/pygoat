@@ -42,15 +42,11 @@ pipeline {
                     // Eliminar archivo anterior si existe
                     sh 'rm -f reporte_bandit.json || true'
                     
-                    try {
-                        // Ejecutar Bandit en el directorio pygoat
+                    // Ejecutar Bandit en el directorio pygoat, generar reporte
                         sh '''
                                 cd pygoat
                                 bandit -r . -f json -o ../reporte_bandit.json
                         '''
-                    } catch (err) {
-                        unstable(message: "Bandit encontró hallazgos de seguridad")
-                    }
                     
                     // Verificar que el archivo se creó
                     sh 'test -f reporte_bandit.json && echo "Archivo reporte_bandit.json creado" || echo "Archivo no existe, creando vacío..."'
@@ -142,13 +138,6 @@ pipeline {
                     --report-path gitleaks-report.json \
                     --no-git || true
                 '''
-
-                // script {
-                //     def report = readJSON file: 'gitleaks-report.json'
-                //     if (report.size() > 0) {
-                //         error("Se detectaron secretos críticos (${report.size()})")
-                //     }
-                // }
 
                 // Archivar resultados
                 archiveArtifacts artifacts: 'gitleaks-report.json', fingerprint: true, allowEmptyArchive: true
