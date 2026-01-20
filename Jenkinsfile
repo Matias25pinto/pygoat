@@ -258,29 +258,64 @@ pipeline {
                     agent {
                         docker {
                             image 'zricethezav/gitleaks:latest'
-                            args '--entrypoint=""' //Si se elimina esto bloquea si existe vulnerabilidades
                         }
                     }
                     steps {
-                        unstash 'pygoat-code'
-
-                        sh '''
-                            gitleaks detect \
-                            --source=pygoat \
-                            --report-format json \
-                            --report-path gitleaks-report.json \
-                            --no-git || true
-                        '''
-
-                        // Archivar resultados
-                        archiveArtifacts artifacts: 'gitleaks-report.json', fingerprint: true, allowEmptyArchive: true
+                        script {
+                            unstash 'pygoat-code'
+                            
+                            def gitleaksExitCode = sh(script: '''
+                                gitleaks detect \
+                                --source=pygoat \
+                                --report-format json \
+                                --report-path gitleaks-report.json \
+                                --no-git
+                            ''', returnStatus: true)
+                            
+                            echo "Gitleaks exit code: ${gitleaksExitCode}"
+                            
+                            // Gitleaks retorna:
+                            // 0 = No leaks found
+                            // 1 = Leaks found
+                            // 2 = Error
+                            
+                            // Opción 1: Si quieres que el stage falle pero el pipeline continúe
+                            catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                                if (gitleaksExitCode == 1) {
+                                    // Encontró secretos
+                                    echo "Gitleaks encontró secretos en el código"
+                                    
+                                    // Leer el reporte para mostrar información
+                                    if (fileExists('gitleaks-report.json')) {
+                                        def leakCount = sh(script: '''
+                                            cat gitleaks-report.json | python3 -c "import sys, json; data=json.load(sys.stdin); print(len(data) if isinstance(data, list) else 0)"
+                                        ''', returnStdout: true).trim().toInteger()
+                                        
+                                        echo "Total de secretos encontrados: ${leakCount}"
+                                    }
+                                    
+                                    error("SECURITY GATE FALLIDO: Gitleaks encontró ${leakCount ?: 'algunos'} secretos en el código")
+                                    
+                                } else if (gitleaksExitCode == 2) {
+                                    error("Gitleaks falló con un error durante la ejecución")
+                                } else if (gitleaksExitCode != 0) {
+                                    error("Gitleaks retornó código de error desconocido: ${gitleaksExitCode}")
+                                } else {
+                                    echo "Gitleaks: No se encontraron secretos en el código"
+                                }
+                            }
+                        }
                     }
-
+                    
                     post {
                         always {
+                            archiveArtifacts artifacts: 'gitleaks-report.json', fingerprint: true, allowEmptyArchive: true
+                            
                             script {
                                 if (fileExists('gitleaks-report.json')) {
                                     echo "Resultados de Gitleaks disponibles para análisis"
+                                } else {
+                                    echo "No se generó reporte de Gitleaks"
                                 }
                             }
                         }
