@@ -62,26 +62,6 @@ pipeline {
                 }
                 // Archivar resultados
                 archiveArtifacts artifacts: 'reporte_bandit.json', fingerprint: true, allowEmptyArchive: true
-
-                script {
-                    // Analizar reporte_bandit.json y fallar si hay HIGH/CRITICAL
-                    if (fileExists('reporte_bandit.json')) {
-                        def banditData = readJSON file: 'reporte_bandit.json'
-                        def criticalHigh = banditData.results.findAll { 
-                            it.issue_severity in ['HIGH', 'CRITICAL'] 
-                        }
-                        
-                        if (criticalHigh.size() > 0) {
-                            echo "❌ ENCONTRADAS ${criticalHigh.size()} VULNERABILIDADES CRÍTICAS/ALTAS"
-                            criticalHigh.each { vuln ->
-                                echo "  - ${vuln.issue_severity}: ${vuln.issue_text} en ${vuln.filename}"
-                            }
-                            error("Security Gate falló: Vulnerabilidades críticas/altas detectadas")
-                        } else {
-                            echo "✅ Bandit: No se encontraron vulnerabilidades críticas/altas"
-                        }
-                    }
-                }
             }
             
             post {
@@ -90,6 +70,54 @@ pipeline {
                         if (fileExists('reporte_bandit.json')) {
                             echo "Resultados de Bandit disponibles para análisis"
                         }
+                    }
+                }
+            }
+        }
+
+        stage('Security Gate - Bandit') {
+            agent any
+            steps {
+                script {
+                    echo "Verificando security gate para Bandit..."
+                    
+                    if (fileExists('reporte_bandit.json')) {
+                        // Leer el archivo JSON y parsearlo manualmente
+                        def jsonContent = readFile('reporte_bandit.json').trim()
+                        
+                        // Si el archivo está vacío o solo tiene {}
+                        if (jsonContent == "{}" || jsonContent == "") {
+                            echo "No hay hallazgos de Bandit"
+                        } else {
+                            // Contar vulnerabilidades usando grep/sed (alternativa simple)
+                            def criticalCount = sh(script: '''
+                                grep -c '"issue_severity": "CRITICAL"' reporte_bandit.json || true
+                            ''', returnStdout: true).trim().toInteger()
+                            
+                            def highCount = sh(script: '''
+                                grep -c '"issue_severity": "HIGH"' reporte_bandit.json || true
+                            ''', returnStdout: true).trim().toInteger()
+                            
+                            echo "Resumen de Bandit:"
+                            echo "  - Vulnerabilidades CRÍTICAS: ${criticalCount}"
+                            echo "  - Vulnerabilidades ALTAS: ${highCount}"
+                            
+                            if (criticalCount > 0 || highCount > 0) {
+                                // Mostrar algunas vulnerabilidades encontradas
+                                sh '''
+                                    echo "VULNERABILIDADES ENCONTRADAS:"
+                                    echo "=== CRÍTICAS ==="
+                                    grep -A2 -B2 '"issue_severity": "CRITICAL"' reporte_bandit.json | head -20 || true
+                                    echo "=== ALTAS ==="
+                                    grep -A2 -B2 '"issue_severity": "HIGH"' reporte_bandit.json | head -20 || true
+                                '''
+                                error("SECURITY GATE FALLIDO: Bandit encontró ${criticalCount} críticas y ${highCount} altas")
+                            } else {
+                                echo "Security Gate: No se encontraron vulnerabilidades críticas/altas"
+                            }
+                        }
+                    } else {
+                        echo "No se encontró reporte de Bandit"
                     }
                 }
             }
