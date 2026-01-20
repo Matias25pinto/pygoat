@@ -36,11 +36,24 @@ pipeline {
                     // Eliminar archivo anterior si existe
                     sh 'rm -f reporte_bandit.json || true'
                     
-                    // Ejecutar Bandit en el directorio pygoat, generar reporte
-                        sh '''
-                                cd pygoat
-                                bandit -r . -f json -o ../reporte_bandit.json
-                        '''
+                    // Ejecutar Bandit capturando el exit code
+                    def banditExitCode = sh(script: '''
+                        cd pygoat
+                        bandit -r . -f json -o ../reporte_bandit.json
+                    ''', returnStatus: true)
+                    
+                    echo "Bandit exit code: ${banditExitCode}"
+                    
+                    // Bandit retorna:
+                    // 0 = No issues found
+                    // 1 = Issues found
+                    // 2 = Error
+                    if (banditExitCode == 1) {
+                        unstable(message: "Bandit encontró vulnerabilidades de seguridad")
+                        echo "Bandit encontró vulnerabilidades"
+                    } else if (banditExitCode == 2) {
+                        error("Bandit falló con un error")
+                    }
                     
                     // Verificar que el archivo se creó
                     sh 'test -f reporte_bandit.json && echo "Archivo reporte_bandit.json creado" || echo "Archivo no existe, creando vacío..."'
