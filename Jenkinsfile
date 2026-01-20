@@ -258,31 +258,39 @@ pipeline {
                     agent {
                         docker {
                             image 'zricethezav/gitleaks:latest'
-                            args '--entrypoint=""' //Si se elimina esto bloquea si existe vulnerabilidades y no genera el reporte
                         }
                     }
+
                     steps {
-                        unstash 'pygoat-code'
+                        script {
+                            unstash 'pygoat-code'
 
-                        sh '''
-                            gitleaks detect \
-                            --source=pygoat \
-                            --report-format json \
-                            --report-path gitleaks-report.json \
-                            --no-git || true
-                        '''
+                            def exitCode = sh(
+                                script: '''
+                                    gitleaks detect \
+                                    --source=pygoat \
+                                    --report-format json \
+                                    --report-path gitleaks-report.json \
+                                    --no-git
+                                ''',
+                                returnStatus: true
+                            )
 
-                        // Archivar resultados
-                        archiveArtifacts artifacts: 'gitleaks-report.json', fingerprint: true, allowEmptyArchive: true
+                            // Archivar siempre el reporte
+                            archiveArtifacts artifacts: 'gitleaks-report.json', fingerprint: true, allowEmptyArchive: true
+
+                            // Analizar resultado
+                            if (exitCode != 0) {
+                                unstable("Gitleaks detectó posibles secretos en el repositorio")
+                            } else {
+                                echo "No se detectaron secretos"
+                            }
+                        }
                     }
 
                     post {
                         always {
-                            script {
-                                if (fileExists('gitleaks-report.json')) {
-                                    echo "Resultados de Gitleaks disponibles para análisis"
-                                }
-                            }
+                            echo "Análisis de secretos finalizado (Gitleaks)"
                         }
                     }
                 }
