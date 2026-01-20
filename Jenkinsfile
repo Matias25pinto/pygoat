@@ -103,14 +103,21 @@ pipeline {
                     '''
 
                     // Subir SBOM a Dependency-Track
-                    sh '''
+                    def uploadExitCode = sh(script: '''
                         curl -s -X POST "$DTRACK_URL/api/v1/bom" \
                         -H "X-Api-Key: $DTRACK_API_KEY" \
                         -F "projectName=$PROJECT_NAME" \
                         -F "projectVersion=$PROJECT_VERSION" \
                         -F "autoCreate=true" \
                         -F "bom=@bom.json"
-                    '''
+                    ''', returnStatus: true)
+                    
+                    echo "Curl exit code: ${uploadExitCode}"
+                    
+                    if (uploadExitCode != 0) {
+                        unstable(message: "No se pudo subir SBOM a Dependency-Track")
+                        echo "Dependency-Track podría no estar disponible"
+                    }
                 }
 
                 // Archivar resultados
