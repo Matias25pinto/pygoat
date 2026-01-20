@@ -197,69 +197,51 @@ pipeline {
             steps {
                 script {
                     sh 'apt-get update && apt-get install -y curl jq'
-                    
-                    echo "⏳ Esperando que Dependency-Track procese el análisis..."
                     sleep(time: 30, unit: 'SECONDS')
                     
                     withCredentials([string(credentialsId: 'dependency-track-api-key', variable: 'DTRACK_API_KEY')]) {
-
-                        def projectInfo = sh(script: """
-                            curl -s -X GET "$DTRACK_URL/api/v1/project/lookup?name=$PROJECT_NAME&version=$PROJECT_VERSION" \\
-                            -H "X-Api-Key: $DTRACK_API_KEY"
-                        """, returnStdout: true).trim()
+                        // 1. Crear script shell seguro
+                        writeFile file: 'get_metrics.sh', text: '''#!/bin/bash
+                            # Obtener proyecto
+                            PROJECT_INFO=$(curl -s -X GET "$DTRACK_URL/api/v1/project/lookup?name=$PROJECT_NAME&version=$PROJECT_VERSION" \
+                                -H "X-Api-Key: $DTRACK_API_KEY")
+                            
+                            # Extraer UUID
+                            PROJECT_UUID=$(echo "$PROJECT_INFO" | jq -r '.uuid')
+                            
+                            # Obtener métricas
+                            METRICS=$(curl -s -X GET "$DTRACK_URL/api/v1/metrics/project/$PROJECT_UUID/current" \
+                                -H "X-Api-Key: $DTRACK_API_KEY")
+                            
+                            # Extraer valores
+                            CRITICAL=$(echo "$METRICS" | jq '.critical // 0')
+                            HIGH=$(echo "$METRICS" | jq '.high // 0')
+                            
+                            echo "CRITICAL=$CRITICAL"
+                            echo "HIGH=$HIGH"
+                        '''
                         
-                        if (!projectInfo || projectInfo == "") {
-                            echo "⚠ No se pudo obtener información del proyecto"
-                            currentBuild.result = 'UNSTABLE'
-                            return
+                        sh 'chmod +x get_metrics.sh && ./get_metrics.sh > metrics_output.txt'
+                        
+                        // 2. Leer resultados
+                        def output = readFile('metrics_output.txt').trim()
+                        def critical = 0
+                        def high = 0
+                        
+                        output.eachLine { line ->
+                            if (line.startsWith('CRITICAL=')) {
+                                critical = line.replace('CRITICAL=', '').toInteger()
+                            } else if (line.startsWith('HIGH=')) {
+                                high = line.replace('HIGH=', '').toInteger()
+                            }
                         }
-                        
-                        def projectUuid = sh(script: """
-                            echo '${projectInfo}' | jq -r '.uuid'
-                        """, returnStdout: true).trim()
-                        
-                        if (!projectUuid || projectUuid == "null") {
-                            echo "⚠ No se pudo obtener UUID del proyecto"
-                            currentBuild.result = 'UNSTABLE'
-                            return
-                        }
-                        
-                        echo "🔍 UUID del proyecto: ${projectUuid}"
-                        
-                        def metrics = sh(script: """
-                            curl -s -X GET "$DTRACK_URL/api/v1/metrics/project/$projectUuid/current" \\
-                            -H "X-Api-Key: $DTRACK_API_KEY"
-                        """, returnStdout: true).trim()
-                        
-                        if (!metrics || metrics == "") {
-                            echo "⚠ No se pudieron obtener métricas"
-                            currentBuild.result = 'UNSTABLE'
-                            return
-                        }
-                        
-                        def critical = sh(script: """
-                            echo '${metrics}' | jq '.critical // 0'
-                        """, returnStdout: true).trim()
-                        
-                        def high = sh(script: """
-                            echo '${metrics}' | jq '.high // 0'
-                        """, returnStdout: true).trim()
-                        
-                        def medium = sh(script: """
-                            echo '${metrics}' | jq '.medium // 0'
-                        """, returnStdout: true).trim()
                         
                         echo "📊 Métricas Dependency-Track:"
                         echo "  - Críticas: ${critical}"
                         echo "  - Altas: ${high}"
-                        echo "  - Medias: ${medium}"
                         
-                        // Convertir a enteros y hacer security gate
-                        def criticalInt = critical.toInteger()
-                        def highInt = high.toInteger()
-                        
-                        if (criticalInt > 0 || highInt > 0) {
-                            error("SECURITY GATE FALLIDO: Dependency-Track reportó ${criticalInt} críticas y ${highInt} altas")
+                        if (critical > 0 || high > 0) {
+                            error("SECURITY GATE FALLIDO: Dependency-Track reportó ${critical} críticas y ${high} altas")
                         } else {
                             echo "✅ Security Gate: No hay vulnerabilidades críticas/altas en dependencias"
                         }
@@ -267,7 +249,6 @@ pipeline {
                 }
             }
         }
-
 
         stage('Secrets Scan - Gitleaks') {
             agent {
