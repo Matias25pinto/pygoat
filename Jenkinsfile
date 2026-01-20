@@ -254,6 +254,8 @@ pipeline {
             agent {
                 docker {
                     image 'zricethezav/gitleaks:latest'
+                    args '--entrypoint=""'
+                    reuseNode true
                 }
             }
 
@@ -285,12 +287,6 @@ pipeline {
                     } else {
                         echo "No se detectaron secretos"
                     }
-                }
-            }
-
-            post {
-                always {
-                    echo "Análisis de secretos finalizado (Gitleaks)"
                 }
             }
         }
