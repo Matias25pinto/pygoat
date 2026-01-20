@@ -62,9 +62,7 @@ pipeline {
                 }
                 // Archivar resultados
                 archiveArtifacts artifacts: 'reporte_bandit.json', fingerprint: true, allowEmptyArchive: true
-            }
 
-            steps {
                 script {
                     // Analizar reporte_bandit.json y fallar si hay HIGH/CRITICAL
                     if (fileExists('reporte_bandit.json')) {
