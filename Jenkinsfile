@@ -75,53 +75,53 @@ pipeline {
             }
         }
 
-        // stage('Security Gate - Bandit') {
-        //     agent any
-        //     steps {
-        //         script {
-        //             echo "Verificando security gate para Bandit..."
+        stage('Security Gate - Bandit') {
+            agent any
+            steps {
+                script {
+                    echo "Verificando security gate para Bandit..."
                     
-        //             if (fileExists('reporte_bandit.json')) {
-        //                 // Leer el archivo JSON y parsearlo manualmente
-        //                 def jsonContent = readFile('reporte_bandit.json').trim()
+                    if (fileExists('reporte_bandit.json')) {
+                        // Leer el archivo JSON y parsearlo manualmente
+                        def jsonContent = readFile('reporte_bandit.json').trim()
                         
-        //                 // Si el archivo está vacío o solo tiene {}
-        //                 if (jsonContent == "{}" || jsonContent == "") {
-        //                     echo "No hay hallazgos de Bandit"
-        //                 } else {
-        //                     // Contar vulnerabilidades usando grep/sed (alternativa simple)
-        //                     def criticalCount = sh(script: '''
-        //                         grep -c '"issue_severity": "CRITICAL"' reporte_bandit.json || true
-        //                     ''', returnStdout: true).trim().toInteger()
+                        // Si el archivo está vacío o solo tiene {}
+                        if (jsonContent == "{}" || jsonContent == "") {
+                            echo "No hay hallazgos de Bandit"
+                        } else {
+                            // Contar vulnerabilidades usando grep/sed (alternativa simple)
+                            def criticalCount = sh(script: '''
+                                grep -c '"issue_severity": "CRITICAL"' reporte_bandit.json || true
+                            ''', returnStdout: true).trim().toInteger()
                             
-        //                     def highCount = sh(script: '''
-        //                         grep -c '"issue_severity": "HIGH"' reporte_bandit.json || true
-        //                     ''', returnStdout: true).trim().toInteger()
+                            def highCount = sh(script: '''
+                                grep -c '"issue_severity": "HIGH"' reporte_bandit.json || true
+                            ''', returnStdout: true).trim().toInteger()
                             
-        //                     echo "Resumen de Bandit:"
-        //                     echo "  - Vulnerabilidades CRÍTICAS: ${criticalCount}"
-        //                     echo "  - Vulnerabilidades ALTAS: ${highCount}"
+                            echo "Resumen de Bandit:"
+                            echo "  - Vulnerabilidades CRÍTICAS: ${criticalCount}"
+                            echo "  - Vulnerabilidades ALTAS: ${highCount}"
                             
-        //                     if (criticalCount > 0 || highCount > 0) {
-        //                         // Mostrar algunas vulnerabilidades encontradas
-        //                         sh '''
-        //                             echo "VULNERABILIDADES ENCONTRADAS:"
-        //                             echo "=== CRÍTICAS ==="
-        //                             grep -A2 -B2 '"issue_severity": "CRITICAL"' reporte_bandit.json | head -20 || true
-        //                             echo "=== ALTAS ==="
-        //                             grep -A2 -B2 '"issue_severity": "HIGH"' reporte_bandit.json | head -20 || true
-        //                         '''
-        //                         error("SECURITY GATE FALLIDO: Bandit encontró ${criticalCount} críticas y ${highCount} altas")
-        //                     } else {
-        //                         echo "Security Gate: No se encontraron vulnerabilidades críticas/altas"
-        //                     }
-        //                 }
-        //             } else {
-        //                 echo "No se encontró reporte de Bandit"
-        //             }
-        //         }
-        //     }
-        // }
+                            if (criticalCount > 0 || highCount > 0) {
+                                // Mostrar algunas vulnerabilidades encontradas
+                                sh '''
+                                    echo "VULNERABILIDADES ENCONTRADAS:"
+                                    echo "=== CRÍTICAS ==="
+                                    grep -A2 -B2 '"issue_severity": "CRITICAL"' reporte_bandit.json | head -20 || true
+                                    echo "=== ALTAS ==="
+                                    grep -A2 -B2 '"issue_severity": "HIGH"' reporte_bandit.json | head -20 || true
+                                '''
+                                error("SECURITY GATE FALLIDO: Bandit encontró ${criticalCount} críticas y ${highCount} altas")
+                            } else {
+                                echo "Security Gate: No se encontraron vulnerabilidades críticas/altas"
+                            }
+                        }
+                    } else {
+                        echo "No se encontró reporte de Bandit"
+                    }
+                }
+            }
+        }
 
         stage('SCA - Dependency-Track') {
             agent {
