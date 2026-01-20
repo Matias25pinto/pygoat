@@ -191,65 +191,83 @@ pipeline {
             }
             environment {
                 DTRACK_URL = 'http://dtrack-api:8080'
-                DTRACK_API_KEY = credentials('dependency-track-api-key')
                 PROJECT_NAME = 'pygoat'
                 PROJECT_VERSION = 'ejercicio-2'
             }
             steps {
                 script {
+                    sh 'apt-get update && apt-get install -y curl jq'
+                    
                     echo "⏳ Esperando que Dependency-Track procese el análisis..."
-                    sleep(time: 40, unit: 'SECONDS')
+                    sleep(time: 30, unit: 'SECONDS')
                     
-                    def projectInfo = sh(script: """
-                        curl -s -X GET "$DTRACK_URL/api/v1/project/lookup?name=$PROJECT_NAME&version=$PROJECT_VERSION" \\
-                        -H "X-Api-Key: $DTRACK_API_KEY"
-                    """, returnStdout: true).trim()
-                    
-                    if (!projectInfo) {
-                        error("No se pudo obtener información del proyecto de Dependency-Track")
-                    }
-                    
-                    def projectUuid = sh(script: """
-                        echo '${projectInfo}' | jq -r '.uuid'
-                    """, returnStdout: true).trim()
-                    
-                    if (!projectUuid || projectUuid == "null") {
-                        error("No se pudo obtener UUID del proyecto")
-                    }
-                    
-                    // Obtener métricas usando jq
-                    def metrics = sh(script: """
-                        curl -s -X GET "$DTRACK_URL/api/v1/metrics/project/$projectUuid/current" \\
-                        -H "X-Api-Key: $DTRACK_API_KEY"
-                    """, returnStdout: true).trim()
-                    
+                    withCredentials([string(credentialsId: 'dependency-track-api-key', variable: 'DTRACK_API_KEY')]) {
 
-                    def critical = sh(script: """
-                        echo '${metrics}' | jq '.critical // 0'
-                    """, returnStdout: true).trim().toInteger()
-                    
-                    def high = sh(script: """
-                        echo '${metrics}' | jq '.high // 0'
-                    """, returnStdout: true).trim().toInteger()
-                    
-                    def medium = sh(script: """
-                        echo '${metrics}' | jq '.medium // 0'
-                    """, returnStdout: true).trim().toInteger()
-                    
-                    echo "Métricas Dependency-Track:"
-                    echo "  - Críticas: ${critical}"
-                    echo "  - Altas: ${high}"
-                    echo "  - Medias: ${medium}"
-                    
-                    // Security Gate
-                    if (critical > 0 || high > 0) {
-                        error("SECURITY GATE FALLIDO: Dependency-Track reportó ${critical} críticas y ${high} altas")
-                    } else {
-                        echo "✅ Security Gate: No hay vulnerabilidades críticas/altas en dependencias"
+                        def projectInfo = sh(script: """
+                            curl -s -X GET "$DTRACK_URL/api/v1/project/lookup?name=$PROJECT_NAME&version=$PROJECT_VERSION" \\
+                            -H "X-Api-Key: $DTRACK_API_KEY"
+                        """, returnStdout: true).trim()
+                        
+                        if (!projectInfo || projectInfo == "") {
+                            echo "⚠ No se pudo obtener información del proyecto"
+                            currentBuild.result = 'UNSTABLE'
+                            return
+                        }
+                        
+                        def projectUuid = sh(script: """
+                            echo '${projectInfo}' | jq -r '.uuid'
+                        """, returnStdout: true).trim()
+                        
+                        if (!projectUuid || projectUuid == "null") {
+                            echo "⚠ No se pudo obtener UUID del proyecto"
+                            currentBuild.result = 'UNSTABLE'
+                            return
+                        }
+                        
+                        echo "🔍 UUID del proyecto: ${projectUuid}"
+                        
+                        def metrics = sh(script: """
+                            curl -s -X GET "$DTRACK_URL/api/v1/metrics/project/$projectUuid/current" \\
+                            -H "X-Api-Key: $DTRACK_API_KEY"
+                        """, returnStdout: true).trim()
+                        
+                        if (!metrics || metrics == "") {
+                            echo "⚠ No se pudieron obtener métricas"
+                            currentBuild.result = 'UNSTABLE'
+                            return
+                        }
+                        
+                        def critical = sh(script: """
+                            echo '${metrics}' | jq '.critical // 0'
+                        """, returnStdout: true).trim()
+                        
+                        def high = sh(script: """
+                            echo '${metrics}' | jq '.high // 0'
+                        """, returnStdout: true).trim()
+                        
+                        def medium = sh(script: """
+                            echo '${metrics}' | jq '.medium // 0'
+                        """, returnStdout: true).trim()
+                        
+                        echo "📊 Métricas Dependency-Track:"
+                        echo "  - Críticas: ${critical}"
+                        echo "  - Altas: ${high}"
+                        echo "  - Medias: ${medium}"
+                        
+                        // Convertir a enteros y hacer security gate
+                        def criticalInt = critical.toInteger()
+                        def highInt = high.toInteger()
+                        
+                        if (criticalInt > 0 || highInt > 0) {
+                            error("SECURITY GATE FALLIDO: Dependency-Track reportó ${criticalInt} críticas y ${highInt} altas")
+                        } else {
+                            echo "✅ Security Gate: No hay vulnerabilidades críticas/altas en dependencias"
+                        }
                     }
                 }
             }
         }
+
 
         stage('Secrets Scan - Gitleaks') {
             agent {
