@@ -3,12 +3,6 @@ pipeline {
 
     stages {
 
-        stage('Start') {
-                    steps {
-                        echo 'Iniciando pipeline del Ejercicio II del Proyecto de Ciberseguridad'
-                    }
-        }
-
         stage('Checkout') {
             steps {
                 echo "Obteniendo el código desde GitHub..."
@@ -154,11 +148,6 @@ pipeline {
             }
         }
 
-        stage('End') {
-            steps {
-                echo 'Pipeline del Ejercicio II del Proyecto de Ciberseguridad finalizado.'
-            }
-        }
     }
 
     post {
