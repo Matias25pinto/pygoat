@@ -5,23 +5,26 @@ pipeline {
 
         HOME = "${WORKSPACE}"
 
-        // Defect Dojo
-        DD_URL = 'http://django-defectdojo-nginx-1:8080'
-        DD_API_KEY = credentials('defectdojo-api-key')
-        DD_PRODUCT_NAME = 'pygoat'
-        DD_ENGAGEMENT_NAME = 'Jenkins Pipeline - Ejercicio 2'
-        DD_ENGAGEMENT_ID = '2'
-        
-        // Nombres de archivos
+        //Bandit 
         BANDIT_REPORT = 'reporte_bandit.json'
-        GITLEAKS_REPORT = 'gitleaks-report.json'
-        BOM_FILE = 'bom.json'
 
         //Dependency Track
         DTRACK_URL = 'http://dtrack-api:8080'
         DTRACK_API_KEY = credentials('dependency-track-api-key')
         PROJECT_NAME = 'pygoat'
         PROJECT_VERSION = "ejercicio-2"
+        BOM_FILE = 'bom.json'
+        FPF_FILE = 'fpf.json'
+        
+        // Gitleaks
+        GITLEAKS_REPORT = 'gitleaks-report.json'
+
+        // Defect Dojo
+        DD_URL = 'http://django-defectdojo-nginx-1:8080'
+        DD_API_KEY = credentials('defectdojo-api-key')
+        DD_PRODUCT_NAME = 'pygoat'
+        DD_ENGAGEMENT_NAME = 'Jenkins Pipeline - Ejercicio 2'
+        DD_ENGAGEMENT_ID = '2'
     }
 
     stages {
@@ -99,25 +102,31 @@ pipeline {
 
         stage('SCA - Dependency-Track') {
             agent {
-                    docker {
+                docker {
                     image 'ci-python-security:latest'
                     args '--network cicd-net'
                     reuseNode true
                 }
             }
+            environment {
+                // Añade estas variables
+                DTRACK_TIMEOUT = '300'  // 5 minutos máximo de espera
+                DTRACK_INTERVAL = '10'  // Verificar cada 10 segundos
+            }
             steps {
                 script {
                     unstash 'pygoat-code'
 
-                    // Generar SBOM desde requirements.txt
+                    // 1. Generar SBOM
                     sh '''
                         cd pygoat
                         cyclonedx-py requirements requirements.txt -o ../$BOM_FILE --no-validate
                     '''
 
-                    // Subir SBOM a Dependency-Track
+                    // 2. Subir SBOM a Dependency-Track
+                    echo "Subiendo SBOM a Dependency-Track..."
                     def uploadExitCode = sh(script: '''
-                        curl -s -X POST "$DTRACK_URL/api/v1/bom" \
+                        curl -s -w "%{http_code}" -X POST "$DTRACK_URL/api/v1/bom" \
                         -H "X-Api-Key: $DTRACK_API_KEY" \
                         -F "projectName=$PROJECT_NAME" \
                         -F "projectVersion=$PROJECT_VERSION" \
@@ -125,26 +134,97 @@ pipeline {
                         -F "bom=@$BOM_FILE"
                     ''', returnStatus: true)
                     
-                    echo "Curl exit code: ${uploadExitCode}"
-                    
-                    if (uploadExitCode != 0) {
-                        unstable(message: "No se pudo subir SBOM a Dependency-Track")
-                        echo "Dependency-Track podría no estar disponible"
-                    }
-                }
-
-                // Archivar resultados
-                stash name: 'bom-file', includes: "${BOM_FILE}"
-                archiveArtifacts artifacts: "${BOM_FILE}", fingerprint: true
-            }
-
-            post {
-                always {
-                    script {
-                        if (fileExists('$BOM_FILE')) {
-                            echo "Resultados de Dependency-Track disponibles para análisis"
+                    if (uploadExitCode != 0 && uploadExitCode != 200 && uploadExitCode != 201) {
+                        echo "⚠️  Código de respuesta: ${uploadExitCode}"
+                        unstable(message: "Posible problema al subir SBOM a Dependency-Track")
+                    } else {
+                        echo "✅ BOM subido a Dependency-Track. Esperando análisis..."
+                        
+                        // 3. Esperar a que el análisis se complete
+                        def projectUuid = ''
+                        def attempts = DTRACK_TIMEOUT.toInteger() / DTRACK_INTERVAL.toInteger()
+                        def analyzed = false
+                        
+                        for (int i = 0; i < attempts; i++) {
+                            sleep(DTRACK_INTERVAL.toInteger())
+                            
+                            // Obtener el UUID del proyecto
+                            sh '''
+                                curl -s -X GET "$DTRACK_URL/api/v1/project/lookup?name=$PROJECT_NAME&version=$PROJECT_VERSION" \
+                                -H "X-Api-Key: $DTRACK_API_KEY" \
+                                -o project-info.json
+                            '''
+                            
+                            // Verificar si el proyecto existe y tiene UUID
+                            if (fileExists('project-info.json')) {
+                                def projectInfo = readJSON file: 'project-info.json'
+                                if (projectInfo && projectInfo.uuid) {
+                                    projectUuid = projectInfo.uuid
+                                    echo "✅ Proyecto encontrado. UUID: ${projectUuid}"
+                                    
+                                    // Verificar métricas para ver si el análisis está completo
+                                    sh """
+                                        curl -s -X GET "$DTRACK_URL/api/v1/metrics/project/${projectUuid}/current" \
+                                        -H "X-Api-Key: $DTRACK_API_KEY" \
+                                        -o metrics.json
+                                    """
+                                    
+                                    if (fileExists('metrics.json')) {
+                                        def metrics = readJSON file: 'metrics.json'
+                                        if (metrics) {
+                                            echo "📊 Métricas: Vulnerabilidades=${metrics.vulnerabilities?.total ?: 0}, Dependencias=${metrics.components?.total ?: 0}"
+                                            analyzed = true
+                                            break
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            echo "⏳ Esperando análisis de Dependency-Track... (${(i+1) * DTRACK_INTERVAL.toInteger()}s/${DTRACK_TIMEOUT}s)")
+                        }
+                        
+                        if (analyzed && projectUuid) {
+                            // 4. Exportar reporte FPF (Finding Packaging Format)
+                            echo "📦 Exportando reporte FPF desde Dependency-Track..."
+                            sh """
+                                curl -s -X GET "$DTRACK_URL/api/v1/finding/project/${projectUuid}/export?format=JSON" \
+                                -H "X-Api-Key: $DTRACK_API_KEY" \
+                                -o $FPF_FILE
+                            """
+                            
+                            // Verificar que el archivo FPF se creó y no está vacío
+                            if (fileExists("${FPF_FILE}")) {
+                                def fileSize = sh(script: "wc -c < ${FPF_FILE}", returnStdout: true).trim().toInteger()
+                                if (fileSize > 100) {  // Más de 100 bytes
+                                    echo "✅ Reporte FPF generado: ${fileSize} bytes"
+                                    stash name: 'fpf-file', includes: "${FPF_FILE}"
+                                } else {
+                                    echo "⚠️  El reporte FPF está vacío o es muy pequeño"
+                                }
+                            } else {
+                                echo "❌ No se pudo generar el reporte FPF"
+                            }
+                            
+                            // 5. También podemos exportar el BOM con vulnerabilidades
+                            echo "📦 Exportando BOM con vulnerabilidades..."
+                            sh """
+                                curl -s -X GET "$DTRACK_URL/api/v1/bom/cyclonedx/project/${projectUuid}" \
+                                -H "X-Api-Key: $DTRACK_API_KEY" \
+                                -o bom-with-vulns.json
+                            """
+                            
+                            if (fileExists('bom-with-vulns.json')) {
+                                stash name: 'bom-with-vulns', includes: 'bom-with-vulns.json'
+                            }
+                            
+                        } else {
+                            echo "❌ El análisis de Dependency-Track no se completó en el tiempo esperado"
                         }
                     }
+                    
+                    // Archivar resultados
+                    stash name: 'bom-file', includes: "${BOM_FILE}"
+                    archiveArtifacts artifacts: "${BOM_FILE}", fingerprint: true
                 }
             }
         }
@@ -192,7 +272,7 @@ pipeline {
 
         stage('DefectDojo - Subir Reportes') {
             agent {
-                    docker {
+                docker {
                     image 'ci-python-security:latest'
                     args '--network cicd-net'
                     reuseNode true
@@ -203,8 +283,14 @@ pipeline {
                     unstash 'bandit-report'
                     unstash 'bom-file'
                     unstash 'gitleaks-report'
-
-                    sh 'ls -la'
+                    
+                    // IMPORTANTE: Usar el archivo FPF, no el BOM
+                    if (fileExists("${WORKSPACE}/${FPF_FILE}")) {
+                        unstash 'fpf-file'
+                        echo "✅ Usando reporte FPF para Dependency Track"
+                    } else {
+                        echo "⚠️  No hay reporte FPF, usando BOM básico"
+                    }
 
                     echo "Subiendo Bandit..."
                     sh """
@@ -227,13 +313,16 @@ pipeline {
                     """
 
                     echo "Subiendo Dependency-Track..."
-                    sh """
-                    curl -X POST "${DD_URL}/api/v2/import-scan/" \
-                    -H "Authorization: Token ${DD_API_KEY}" \
-                    -F "engagement=${DD_ENGAGEMENT_ID}" \
-                    -F "scan_type=Dependency Track Finding Packaging Format (FPF) Export" \
-                    -F "file=@${BOM_FILE}"
-                    """
+                    if (fileExists("${FPF_FILE}")) {
+                        // Usar el FPF (con vulnerabilidades)
+                        sh """
+                        curl -X POST "${DD_URL}/api/v2/import-scan/" \
+                        -H "Authorization: Token ${DD_API_KEY}" \
+                        -F "engagement=${DD_ENGAGEMENT_ID}" \
+                        -F "scan_type=Dependency Track Finding Packaging Format (FPF) Export" \
+                        -F "file=@${FPF_FILE}"
+                        """
+                    }
                 }
             }
         }
