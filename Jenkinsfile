@@ -130,7 +130,7 @@ pipeline {
                 DTRACK_URL = 'http://dtrack-api:8080'
                 DTRACK_API_KEY = credentials('dependency-track-api-key')
                 PROJECT_NAME = 'pygoat'
-                PROJECT_VERSION = "${env.BUILD_NUMBER}-${env.GIT_COMMIT.take(10)}"
+                PROJECT_VERSION = "ejercicio-2"
             }
             steps {
                 script {
@@ -188,7 +188,7 @@ pipeline {
             environment {
                 DTRACK_URL = 'http://dtrack-api:8080'
                 PROJECT_NAME = 'pygoat'
-                PROJECT_VERSION = "${env.BUILD_NUMBER}-${env.GIT_COMMIT.take(10)}"
+                PROJECT_VERSION = "ejercicio-2"
             }
             steps {
                 script {
