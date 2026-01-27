@@ -286,6 +286,69 @@ pipeline {
                 }
             }
         }
+
+        stage('DefectDojo - Auto Product & Engagement') {
+            agent {
+                docker {
+                    image 'python:3.11-slim'
+                    args '--network cicd-net'
+                }
+            }
+            steps {
+                withCredentials([string(credentialsId: 'defectdojo-api-key', variable: 'DD_API_KEY')]) {
+                    sh '''
+                        apt-get update -qq && apt-get install -y -qq curl jq
+
+                        echo " Buscando Product..."
+                        PRODUCT_JSON=$(curl -s -H "Authorization: Token $DD_API_KEY" \
+                            "$DEFECTDOJO_URL/api/v2/products/?name=$PRODUCT_NAME")
+
+                        PRODUCT_ID=$(echo "$PRODUCT_JSON" | jq -r '.results[0].id // empty')
+
+                        if [ -z "$PRODUCT_ID" ]; then
+                            echo " Creando Product..."
+                            PRODUCT_ID=$(curl -s -X POST "$DEFECTDOJO_URL/api/v2/products/" \
+                                -H "Authorization: Token $DD_API_KEY" \
+                                -H "Content-Type: application/json" \
+                                -d "{
+                                \\"name\\": \\"$PRODUCT_NAME\\",
+                                \\"description\\": \\"Auto-created from Jenkins\\",
+                                \\"prod_type\\": 1
+                            }" | jq -r '.id')
+                        fi
+
+                        echo " Product ID: $PRODUCT_ID"
+
+                        echo " Buscando Engagement..."
+                        ENG_JSON=$(curl -s -H "Authorization: Token $DD_API_KEY" \
+                            "$DEFECTDOJO_URL/api/v2/engagements/?name=$ENGAGEMENT_NAME&product=$PRODUCT_ID")
+
+                        ENGAGEMENT_ID=$(echo "$ENG_JSON" | jq -r '.results[0].id // empty')
+
+                        if [ -z "$ENGAGEMENT_ID" ]; then
+                            echo " Creando Engagement..."
+                            ENGAGEMENT_ID=$(curl -s -X POST "$DEFECTDOJO_URL/api/v2/engagements/" \
+                                -H "Authorization: Token $DD_API_KEY" \
+                                -H "Content-Type: application/json" \
+                                -d "{
+                                \\"name\\": \\"$ENGAGEMENT_NAME\\",
+                                \\"product\\": $PRODUCT_ID,
+                                \\"status\\": \\"In Progress\\",
+                                \\"engagement_type\\": \\"CI/CD\\"
+                            }" | jq -r '.id')
+                        fi
+
+                        echo " Engagement ID: $ENGAGEMENT_ID"
+
+                        echo "PRODUCT_ID=$PRODUCT_ID" > defectdojo.env
+                        echo "ENGAGEMENT_ID=$ENGAGEMENT_ID" >> defectdojo.env
+                    '''
+
+                    stash name: 'defectdojo-ids', includes: 'defectdojo.env'
+                }
+            }
+        }
+
     }
 
     post {
