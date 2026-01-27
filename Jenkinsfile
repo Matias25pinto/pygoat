@@ -109,8 +109,6 @@ pipeline {
                 script {
                     unstash 'pygoat-code'
 
-                    sh 'pip install -q cyclonedx-bom'
-
                     // Generar SBOM desde requirements.txt
                     sh '''
                         cd pygoat
