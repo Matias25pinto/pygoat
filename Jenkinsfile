@@ -181,8 +181,7 @@ pipeline {
             agent any
             steps {
                 script {
-                    withCredentials([string(credentialsId: 'defectdojo-api-token', variable: 'DD_API_TOKEN')]) {
-                        // Subir solo Bandit primero
+                    withCredentials([string(credentialsId: 'defectdojo-api-key', variable: 'DD_API_TOKEN')]) {
                         sh '''
                             echo "=== DEBUG: Subiendo solo Bandit ==="
                             
