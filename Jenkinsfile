@@ -203,33 +203,38 @@ pipeline {
                             error("No se puede conectar a DefectDojo. HTTP Code: ${apiCheck}")
                         }
                         
-                        echo "DefectDojo API accesible"
+                        echo "✅ DefectDojo API accesible"
                         
-                        // 2. Buscar o crear producto
-                        def productId = sh(script: '''
-                            # Buscar producto
-                            RESPONSE=$(curl -s -H "Authorization: Token $DD_API_TOKEN" \
+                        // 2. Buscar producto
+                        echo "Buscando producto: ${PRODUCT_NAME}"
+                        
+                        sh '''
+                            # Buscar producto existente
+                            RESPONSE=$(curl -s \
+                            -H "Authorization: Token $DD_API_TOKEN" \
                             "$DEFECTDOJO_URL/api/v2/products/?name=$PRODUCT_NAME")
                             
-                            COUNT=$(echo "$RESPONSE" | grep -o '"count":[0-9]*' | cut -d: -f2)
+                            echo "Respuesta de búsqueda: $RESPONSE"
+                        '''
+                        
+                        // 3. Crear producto si no existe
+                        sh '''
+                            # Intentar crear el producto
+                            CREATE_RESPONSE=$(curl -s -X POST \
+                            -H "Authorization: Token $DD_API_TOKEN" \
+                            -H "Content-Type: application/json" \
+                            -d '{"name": "'"${PRODUCT_NAME}"'", "description": "Proyecto PyGoat", "prod_type": 1}' \
+                            "$DEFECTDOJO_URL/api/v2/products/")
                             
-                            if [ "$COUNT" -eq 0 ]; then
-                                echo "Creando producto..."
-                                CREATE_RESPONSE=$(curl -s -X POST \
-                                -H "Authorization: Token $DD_API_TOKEN" \
-                                -H "Content-Type: application/json" \
-                                -d "{\"name\": \"$PRODUCT_NAME\", \"description\": \"Proyecto PyGoat\", \"prod_type\": 1}" \
-                                "$DEFECTDOJO_URL/api/v2/products/")
-                                
-                                echo "$CREATE_RESPONSE" | grep -o '"id":[0-9]*' | cut -d: -f2
-                            else
-                                echo "$RESPONSE" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2
+                            echo "Respuesta creación: $CREATE_RESPONSE"
+                            
+                            # Verificar si hubo error
+                            if echo "$CREATE_RESPONSE" | grep -q "error"; then
+                                echo "⚠ Posible error al crear producto"
                             fi
-                        ''', returnStdout: true).trim()
+                        '''
                         
-                        echo "Product ID: ${productId}"
-                        
-                        // 3. Subir reportes
+                        // 4. Subir reportes si existen
                         def reports = [
                             ['file': 'reporte_bandit.json', 'scan_type': 'Bandit Scan'],
                             ['file': 'gitleaks-report.json', 'scan_type': 'Gitleaks Scan'],
@@ -240,20 +245,24 @@ pipeline {
                             if (fileExists(report.file)) {
                                 echo "Subiendo ${report.file} a DefectDojo..."
                                 
-                                sh """
-                                    curl -X POST \
+                                def uploadExitCode = sh(script: """
+                                    curl -v -X POST \
                                     -H "Authorization: Token $DD_API_TOKEN" \
-                                    -F "engagement_name=$ENGAGEMENT_NAME" \
-                                    -F "product_name=$PRODUCT_NAME" \
+                                    -F "engagement_name=${ENGAGEMENT_NAME}" \
+                                    -F "product_name=${PRODUCT_NAME}" \
                                     -F "scan_type=${report.scan_type}" \
                                     -F "file=@${report.file}" \
                                     -F "close_old_findings=true" \
                                     -F "active=true" \
                                     -F "verified=true" \
                                     "$DEFECTDOJO_URL/api/v2/import-scan/"
-                                """
+                                """, returnStatus: true)
                                 
-                                echo "✅ ${report.file} subido"
+                                if (uploadExitCode == 0) {
+                                    echo "✅ ${report.file} subido exitosamente"
+                                } else {
+                                    echo "⚠ Error subiendo ${report.file}, exit code: ${uploadExitCode}"
+                                }
                             } else {
                                 echo "⚠ ${report.file} no encontrado, omitiendo"
                             }
