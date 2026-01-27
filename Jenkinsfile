@@ -1,6 +1,27 @@
 pipeline {
     agent any
 
+    environment {
+
+        // Defect Dojo
+        DD_URL = 'http://defectdojo:8080'
+        DD_API_KEY = credentials('defectdojo-api-key')
+        DD_PRODUCT_NAME = 'pygoat'
+        DD_ENGAGEMENT_NAME = 'Jenkins Pipeline - Ejercicio 2'
+        DD_ENGAGEMENT_ID = '2'
+        
+        // Nombres de archivos
+        BANDIT_REPORT = 'reporte_bandit.json'
+        GITLEAKS_REPORT = 'gitleaks-report.json'
+        BOM_FILE = 'bom.json'
+
+        //Dependency Track
+        DTRACK_URL = 'http://dtrack-api:8080'
+        DTRACK_API_KEY = credentials('dependency-track-api-key')
+        PROJECT_NAME = 'pygoat'
+        PROJECT_VERSION = "ejercicio-2"
+    }
+
     stages {
 
         stage('Checkout') {
@@ -34,12 +55,12 @@ pipeline {
                     sh 'pip install -q bandit'
                     
                     // Eliminar archivo anterior si existe
-                    sh 'rm -f reporte_bandit.json || true'
+                    sh 'rm -f BANDIT_REPORT || true'
                     
                     // Ejecutar Bandit capturando el exit code
                     def banditExitCode = sh(script: '''
                         cd pygoat
-                        bandit -r . -f json -o ../reporte_bandit.json
+                        bandit -r . -f json -o ../$BANDIT_REPORT
                     ''', returnStatus: true)
                     
                     echo "Bandit exit code: ${banditExitCode}"
@@ -56,18 +77,18 @@ pipeline {
                     }
                     
                     // Verificar que el archivo se creó
-                    sh 'test -f reporte_bandit.json && echo "Archivo reporte_bandit.json creado" || echo "Archivo no existe, creando vacío..."'
-                    sh 'test -f reporte_bandit.json || echo "{}" > reporte_bandit.json'
-                    sh 'ls -la reporte_bandit.json'
+                    sh 'test -f $BANDIT_REPORT && echo "Archivo $BANDIT_REPORT creado" || echo "Archivo no existe, creando vacío..."'
+                    sh 'test -f $BANDIT_REPORT || echo "{}" > $BANDIT_REPORT'
+                    sh 'ls -la $BANDIT_REPORT'
                 }
                 // Archivar resultados
-                archiveArtifacts artifacts: 'reporte_bandit.json', fingerprint: true, allowEmptyArchive: true
+                archiveArtifacts artifacts: '$BANDIT_REPORT', fingerprint: true, allowEmptyArchive: true
             }
             
             post {
                 always {
                     script {
-                        if (fileExists('reporte_bandit.json')) {
+                        if (fileExists('$BANDIT_REPORT')) {
                             echo "Resultados de Bandit disponibles para análisis"
                         }
                     }
@@ -83,12 +104,6 @@ pipeline {
                     args '-u root --network cicd-net'
                 }
             }
-            environment {
-                DTRACK_URL = 'http://dtrack-api:8080'
-                DTRACK_API_KEY = credentials('dependency-track-api-key')
-                PROJECT_NAME = 'pygoat'
-                PROJECT_VERSION = "ejercicio-2"
-            }
             steps {
                 script {
                     unstash 'pygoat-code'
@@ -99,7 +114,7 @@ pipeline {
                     // Generar SBOM desde requirements.txt
                     sh '''
                         cd pygoat
-                        cyclonedx-py requirements requirements.txt -o ../bom.json
+                        cyclonedx-py requirements requirements.txt -o ../$BOM_FILE
                     '''
 
                     // Subir SBOM a Dependency-Track
@@ -109,7 +124,7 @@ pipeline {
                         -F "projectName=$PROJECT_NAME" \
                         -F "projectVersion=$PROJECT_VERSION" \
                         -F "autoCreate=true" \
-                        -F "bom=@bom.json"
+                        -F "bom=@$BOM_FILE"
                     ''', returnStatus: true)
                     
                     echo "Curl exit code: ${uploadExitCode}"
@@ -121,13 +136,13 @@ pipeline {
                 }
 
                 // Archivar resultados
-                archiveArtifacts artifacts: 'bom.json', fingerprint: true, allowEmptyArchive: true
+                archiveArtifacts artifacts: '$BOM_FILE', fingerprint: true, allowEmptyArchive: true
             }
 
             post {
                 always {
                     script {
-                        if (fileExists('bom.json')) {
+                        if (fileExists('$BOM_FILE')) {
                             echo "Resultados de Dependency-Track disponibles para análisis"
                         }
                     }
@@ -158,13 +173,13 @@ pipeline {
                             gitleaks detect \
                             --source=pygoat \
                             --report-format json \
-                            --report-path gitleaks-report.json \
+                            --report-path $GITLEAKS_REPORT \
                             --no-git
                         ''',
                         returnStatus: true
                     )
 
-                    archiveArtifacts artifacts: 'gitleaks-report.json',
+                    archiveArtifacts artifacts: '$GITLEAKS_REPORT',
                                     fingerprint: true,
                                     allowEmptyArchive: true
 
@@ -177,44 +192,81 @@ pipeline {
             }
         }
 
-        stage('DefectDojo') {
+        stage('DefectDojo - Subir Reportes') {
             agent {
                 docker {
-                    image 'curlimages/curl:8.6.0'
-                    args '--network cicd-net'
+                    image 'python:3.11-slim'
+                    args '-u root --network cicd-net'
                 }
-            }
-            environment {
-                DEFECTDOJO_URL = 'http://django-defectdojo-nginx-1:8080'
-                PRODUCT_NAME = 'pygoat'
             }
             steps {
                 script {
-                    withCredentials([string(credentialsId: 'defectdojo-api-key', variable: 'DD_API_TOKEN')]) {
-                        sh '''
-                            echo "=== DEBUG: Subiendo solo Bandit ==="
-                            
-                            # Crear producto si no existe
-                            curl -s -X POST \
-                            -H "Authorization: Token $DD_API_TOKEN" \
-                            -H "Content-Type: application/json" \
-                            -d '{"name": $PRODUCT_NAME, "description": "Debug", "prod_type": 1}' \
-                            $DEFECTDOJO_URL/api/v2/products/ || true
-                            
-                            # Subir reporte
-                            curl -v -X POST \
-                            -H "Authorization: Token $DD_API_TOKEN" \
-                            -F "engagement_name=DEBUG_${BUILD_NUMBER}" \
-                            -F "product_name=$PRODUCT_NAME" \
-                            -F "scan_type=Bandit Scan" \
-                            -F "file=@reporte_bandit.json" \
-                            $DEFECTDOJO_URL/api/v2/import-scan/
-                        '''
+                    echo "Subiendo reportes a DefectDojo..."
+                    
+                    // Recuperar reportes
+                    unstash 'bandit-report'
+                    unstash 'bom-file'
+                    unstash 'gitleaks-report'
+                    
+                    // 1. Subir reporte de Bandit
+                    echo "Subiendo reporte de Bandit..."
+                    def banditUpload = sh(script: """
+                        curl -s -X POST "${DD_URL}/api/v2/import-scan/" \
+                        -H "Authorization: Token ${DD_API_KEY}" \
+                        -F "engagement=${DD_ENGAGEMENT_ID}" \
+                        -F "scan_type=\"Bandit Scan\"" \
+                        -F "file=@${BANDIT_REPORT}" \
+                        -F "minimum_severity=\"Info\"" \
+                        -F "active=true" \
+                        -F "verified=false"
+                    """, returnStatus: true)
+                    
+                    if (banditUpload == 0) {
+                        echo "✓ Reporte de Bandit subido exitosamente"
+                    } else {
+                        unstable("No se pudo subir el reporte de Bandit")
+                    }
+                    
+                    // 2. Subir reporte de Gitleaks
+                    echo "Subiendo reporte de Gitleaks..."
+                    def gitleaksUpload = sh(script: """
+                        curl -s -X POST "${DD_URL}/api/v2/import-scan/" \
+                        -H "Authorization: Token ${DD_API_KEY}" \
+                        -F "engagement=${DD_ENGAGEMENT_ID}" \
+                        -F "scan_type=\"Gitleaks Scan\"" \
+                        -F "file=@${GITLEAKS_REPORT}" \
+                        -F "minimum_severity=\"Info\"" \
+                        -F "active=true" \
+                        -F "verified=false"
+                    """, returnStatus: true)
+                    
+                    if (gitleaksUpload == 0) {
+                        echo "✓ Reporte de Gitleaks subido exitosamente"
+                    } else {
+                        unstable("No se pudo subir el reporte de Gitleaks")
+                    }
+                    
+                    // 3. Subir reporte de Dependency-Track
+                    echo "Subiendo reporte de Dependency-Track..."
+                    def dtrackUpload = sh(script: """
+                        curl -s -X POST "${DD_URL}/api/v2/import-scan/" \
+                        -H "Authorization: Token ${DD_API_KEY}" \
+                        -F "engagement=${DD_ENGAGEMENT_ID}" \
+                        -F "scan_type=\"Dependency Track Finding Packaging Format (FPF) Export\"" \
+                        -F "file=@${BOM_FILE}" \
+                        -F "minimum_severity=\"Info\"" \
+                        -F "active=true" \
+                        -F "verified=false"
+                    """, returnStatus: true)
+                    
+                    if (dtrackUpload == 0) {
+                        echo "✓ Reporte de Dependency-Track subido exitosamente"
+                    } else {
+                        unstable("No se pudo subir el reporte de Dependency-Track")
                     }
                 }
             }
         }
-
     }
 
     post {
