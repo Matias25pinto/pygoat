@@ -177,51 +177,38 @@ pipeline {
             }
         }
 
-        stage('DefectDojo - Upload Reports') {
+        stage('DefectDojo') {
             agent {
                 docker {
                     image 'curlimages/curl:8.6.0'
-                    args '--network django-defectdojo_default'  # Usar la red de DefectDojo
+                    args '--network cicd-net'
                 }
             }
             environment {
-                DEFECTDOJO_URL = 'http://django-defectdojo-nginx-1:8080'  # Nombre del servicio
+                DEFECTDOJO_URL = 'http://django-defectdojo-nginx-1:8080'
                 PRODUCT_NAME = 'pygoat'
             }
             steps {
                 script {
                     withCredentials([string(credentialsId: 'defectdojo-api-key', variable: 'DD_API_TOKEN')]) {
-                        // Verificar conexión
                         sh '''
-                            echo "=== Verificando conexión ==="
-                            curl -s -H "Authorization: Token $DD_API_TOKEN" \
-                            "$DEFECTDOJO_URL/api/v2/users/" | jq '.count'
-                        '''
-                        
-                        // Crear producto
-                        sh '''
-                            echo "=== Creando producto ==="
-                            curl -v -X POST \
+                            echo "=== DEBUG: Subiendo solo Bandit ==="
+                            
+                            # Crear producto si no existe
+                            curl -s -X POST \
                             -H "Authorization: Token $DD_API_TOKEN" \
                             -H "Content-Type: application/json" \
-                            -d '{"name": "pygoat", "description": "Proyecto PyGoat", "prod_type": 1}' \
-                            "$DEFECTDOJO_URL/api/v2/products/"
-                        '''
-                        
-                        // Subir reporte
-                        sh '''
-                            echo "=== Subiendo reporte Bandit ==="
+                            -d '{"name": $PRODUCT_NAME, "description": "Debug", "prod_type": 1}' \
+                            $DEFECTDOJO_URL/api/v2/products/ || true
+                            
+                            # Subir reporte
                             curl -v -X POST \
                             -H "Authorization: Token $DD_API_TOKEN" \
-                            -F "engagement_name=Jenkins_Scan_${BUILD_NUMBER}" \
-                            -F "product_name=pygoat" \
+                            -F "engagement_name=DEBUG_${BUILD_NUMBER}" \
+                            -F "product_name=$PRODUCT_NAME" \
                             -F "scan_type=Bandit Scan" \
                             -F "file=@reporte_bandit.json" \
-                            -F "scan_date=$(date +%Y-%m-%d)" \
-                            -F "close_old_findings=true" \
-                            -F "active=true" \
-                            -F "verified=true" \
-                            "$DEFECTDOJO_URL/api/v2/import-scan/"
+                            $DEFECTDOJO_URL/api/v2/import-scan/
                         '''
                     }
                 }
