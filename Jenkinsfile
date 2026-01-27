@@ -32,6 +32,7 @@ pipeline {
                 sh '''
                     rm -rf pygoat || true
                     git clone https://github.com/Matias25pinto/pygoat.git pygoat
+                    git config --global --add safe.directory $WORKSPACE/pygoat
                     cd pygoat
                     git checkout defect-dojo
                 '''
@@ -51,8 +52,6 @@ pipeline {
                 script {
                     // Recuperar el código stasheado
                     unstash 'pygoat-code'
-                    
-                    sh 'git config --global --add safe.directory $WORKSPACE/pygoat'
                     
                     // Eliminar archivo anterior si existe
                     sh 'rm -f $BANDIT_REPORT || true'
