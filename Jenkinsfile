@@ -6,8 +6,7 @@ pipeline {
         HOME = "${WORKSPACE}"
 
         // Defect Dojo
-        DD_URL = "http://host.docker.internal:8083"
-        DD_API_KEY = credentials('defectdojo-api-key')
+        DD_URL = "http://django-defectdojo-nginx-1:8080"
         DD_PRODUCT_NAME = 'pygoat'
         DD_ENGAGEMENT_NAME = 'Jenkins Pipeline - Ejercicio 2'
         DD_ENGAGEMENT_ID = '2'
@@ -200,7 +199,7 @@ pipeline {
             }
             steps {
                 script {
-                    withCredentials([string(credentialsId: 'DD_API_KEY', variable: 'SECRET_DD_API_KEY')]) {
+                    withCredentials([string(credentialsId: 'defectdojo-api-key', variable: 'SECRET_DD_API_KEY')]) {
                     unstash 'bandit-report'
                     unstash 'bom-file'
                     unstash 'gitleaks-report'
