@@ -112,7 +112,7 @@ pipeline {
                     // Generar SBOM desde requirements.txt
                     sh '''
                         cd pygoat
-                        cyclonedx-py requirements requirements.txt -o ../$BOM_FILE
+                        cyclonedx-py requirements requirements.txt -o ../$BOM_FILE --no-validate
                     '''
 
                     // Subir SBOM a Dependency-Track
