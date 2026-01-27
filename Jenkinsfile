@@ -6,7 +6,7 @@ pipeline {
         HOME = "${WORKSPACE}"
 
         // Defect Dojo
-        DD_URL = 'http://defectdojo:8080'
+        DD_URL = "http://host.docker.internal:8083"
         DD_API_KEY = credentials('defectdojo-api-key')
         DD_PRODUCT_NAME = 'pygoat'
         DD_ENGAGEMENT_NAME = 'Jenkins Pipeline - Ejercicio 2'
