@@ -41,7 +41,7 @@ pipeline {
         stage('SAST - Bandit') {
             agent {
                 docker {
-                    image 'python:3.11-slim'
+                    image 'python:3.11-alpine'
                 }
             }
             steps {
@@ -49,7 +49,6 @@ pipeline {
                     // Recuperar el código stasheado
                     unstash 'pygoat-code'
                     
-                    sh 'apt-get update && apt-get install -qq -y git'
                     sh 'git config --global --add safe.directory $WORKSPACE/pygoat'
                     sh 'pip install -q bandit'
                     
@@ -100,7 +99,7 @@ pipeline {
         stage('SCA - Dependency-Track') {
             agent {
                 docker {
-                    image 'python:3.11-slim'
+                    image 'python:3.11-alpine'
                     args '--network cicd-net'
                 }
             }
@@ -108,7 +107,6 @@ pipeline {
                 script {
                     unstash 'pygoat-code'
 
-                    sh 'apt-get update && apt-get install -qq -y git curl'
                     sh 'pip install -q cyclonedx-bom'
 
                     // Generar SBOM desde requirements.txt
