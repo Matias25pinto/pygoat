@@ -98,56 +98,46 @@ pipeline {
 
 
         stage('SCA - Dependency-Track') {
-            agent {
-                    docker {
-                    image 'ci-python-security:latest'
-                    args '--network cicd-net'
-                    reuseNode true
-                }
-            }
-            steps {
-                script {
-                    unstash 'pygoat-code'
-
-                    // Generar SBOM desde requirements.txt
-                    sh '''
-                        cd pygoat
-                        cyclonedx-py requirements requirements.txt -o ../$BOM_FILE --no-validate
-                    '''
-
-                    // Subir SBOM a Dependency-Track
-                    def uploadExitCode = sh(script: '''
-                        curl -s -X POST "$DTRACK_URL/api/v1/bom" \
-                        -H "X-Api-Key: $DTRACK_API_KEY" \
-                        -F "projectName=$PROJECT_NAME" \
-                        -F "projectVersion=$PROJECT_VERSION" \
-                        -F "autoCreate=true" \
-                        -F "bom=@$BOM_FILE"
-                    ''', returnStatus: true)
-                    
-                    echo "Curl exit code: ${uploadExitCode}"
-                    
-                    if (uploadExitCode != 0) {
-                        unstable(message: "No se pudo subir SBOM a Dependency-Track")
-                        echo "Dependency-Track podría no estar disponible"
-                    }
-                }
-
-                // Archivar resultados
-                stash name: 'bom-file', includes: "${BOM_FILE}"
-                archiveArtifacts artifacts: "${BOM_FILE}", fingerprint: true
-            }
-
-            post {
-                always {
-                    script {
-                        if (fileExists('$BOM_FILE')) {
-                            echo "Resultados de Dependency-Track disponibles para análisis"
-                        }
-                    }
-                }
-            }
+    agent {
+        docker {
+            image 'ci-python-security:latest'
+            args '--network cicd-net'
+            reuseNode true
         }
+    }
+    steps {
+        script {
+            unstash 'pygoat-code'
+
+            // Generar SBOM desde requirements.txt
+            sh '''
+                cd pygoat
+                cyclonedx-py requirements requirements.txt -o ../$BOM_FILE --no-validate
+            '''
+
+            // Subir SBOM a Dependency-Track
+            sh '''
+                curl -s -X POST "$DTRACK_URL/api/v1/bom" \
+                -H "X-Api-Key: $DTRACK_API_KEY" \
+                -F "projectName=$PROJECT_NAME" \
+                -F "projectVersion=$PROJECT_VERSION" \
+                -F "autoCreate=true" \
+                -F "bom=@$BOM_FILE"
+            '''
+
+            // Generar FPF desde Dependency-Track
+            sh '''
+                PROJECT_UUID=$(curl -s -X GET "$DTRACK_URL/api/v1/project?name=$PROJECT_NAME" -H "X-Api-Key: $DTRACK_API_KEY" | jq -r '.[0].uuid')
+                VERSION_UUID=$(curl -s -X GET "$DTRACK_URL/api/v1/project/$PROJECT_UUID/version?version=$PROJECT_VERSION" -H "X-Api-Key: $DTRACK_API_KEY" | jq -r '.[0].uuid')
+                curl -s -X GET "$DTRACK_URL/api/v1/finding/project/$PROJECT_UUID/version/$VERSION_UUID/fpf" \
+                -H "X-Api-Key: $DTRACK_API_KEY" -o dependency-track.fpf.json
+            '''
+        }
+
+        stash name: 'dependency-track-fpf', includes: 'dependency-track.fpf.json'
+        archiveArtifacts artifacts: 'dependency-track.fpf.json', fingerprint: true
+    }
+}
 
 
         stage('Secrets Scan - Gitleaks') {
