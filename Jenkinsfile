@@ -42,7 +42,6 @@ pipeline {
             agent {
                 docker {
                     image 'python:3.11-slim'
-                    args '-u root'
                 }
             }
             steps {
@@ -102,7 +101,7 @@ pipeline {
             agent {
                 docker {
                     image 'python:3.11-slim'
-                    args '-u root --network cicd-net'
+                    args '--network cicd-net'
                 }
             }
             steps {
