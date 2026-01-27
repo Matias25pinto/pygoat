@@ -82,13 +82,14 @@ pipeline {
                     sh 'ls -la $BANDIT_REPORT'
                 }
                 // Archivar resultados
-                archiveArtifacts artifacts: '$BANDIT_REPORT', fingerprint: true, allowEmptyArchive: true
+                stash name: 'bandit-report', includes: "${BANDIT_REPORT}"
+                archiveArtifacts artifacts: "${BANDIT_REPORT}", fingerprint: true, allowEmptyArchive: true
             }
             
             post {
                 always {
                     script {
-                        if (fileExists('$BANDIT_REPORT')) {
+                        if (fileExists("${BANDIT_REPORT}")) {
                             echo "Resultados de Bandit disponibles para análisis"
                         }
                     }
@@ -136,7 +137,8 @@ pipeline {
                 }
 
                 // Archivar resultados
-                archiveArtifacts artifacts: '$BOM_FILE', fingerprint: true, allowEmptyArchive: true
+                stash name: 'bom-file', includes: "${BOM_FILE}"
+                archiveArtifacts artifacts: "${BOM_FILE}", fingerprint: true
             }
 
             post {
@@ -179,9 +181,8 @@ pipeline {
                         returnStatus: true
                     )
 
-                    archiveArtifacts artifacts: '$GITLEAKS_REPORT',
-                                    fingerprint: true,
-                                    allowEmptyArchive: true
+                    stash name: 'gitleaks-report', includes: "${GITLEAKS_REPORT}"
+                    archiveArtifacts artifacts: "${GITLEAKS_REPORT}", fingerprint: true 
 
                     if (exitCode != 0) {
                         unstable("Gitleaks detectó secretos")
@@ -195,78 +196,50 @@ pipeline {
         stage('DefectDojo - Subir Reportes') {
             agent {
                 docker {
-                    image 'python:3.11-slim'
-                    args '-u root --network cicd-net'
+                    image 'curlimages/curl:8.6.0'
+                    args '--network cicd-net'
                 }
             }
             steps {
                 script {
-                    echo "Subiendo reportes a DefectDojo..."
-                    
-                    // Recuperar reportes
                     unstash 'bandit-report'
                     unstash 'bom-file'
                     unstash 'gitleaks-report'
-                    
-                    // 1. Subir reporte de Bandit
-                    echo "Subiendo reporte de Bandit..."
-                    def banditUpload = sh(script: """
-                        curl -s -X POST "${DD_URL}/api/v2/import-scan/" \
-                        -H "Authorization: Token ${DD_API_KEY}" \
-                        -F "engagement=${DD_ENGAGEMENT_ID}" \
-                        -F "scan_type=\"Bandit Scan\"" \
-                        -F "file=@${BANDIT_REPORT}" \
-                        -F "minimum_severity=\"Info\"" \
-                        -F "active=true" \
-                        -F "verified=false"
-                    """, returnStatus: true)
-                    
-                    if (banditUpload == 0) {
-                        echo "✓ Reporte de Bandit subido exitosamente"
-                    } else {
-                        unstable("No se pudo subir el reporte de Bandit")
-                    }
-                    
-                    // 2. Subir reporte de Gitleaks
-                    echo "Subiendo reporte de Gitleaks..."
-                    def gitleaksUpload = sh(script: """
-                        curl -s -X POST "${DD_URL}/api/v2/import-scan/" \
-                        -H "Authorization: Token ${DD_API_KEY}" \
-                        -F "engagement=${DD_ENGAGEMENT_ID}" \
-                        -F "scan_type=\"Gitleaks Scan\"" \
-                        -F "file=@${GITLEAKS_REPORT}" \
-                        -F "minimum_severity=\"Info\"" \
-                        -F "active=true" \
-                        -F "verified=false"
-                    """, returnStatus: true)
-                    
-                    if (gitleaksUpload == 0) {
-                        echo "✓ Reporte de Gitleaks subido exitosamente"
-                    } else {
-                        unstable("No se pudo subir el reporte de Gitleaks")
-                    }
-                    
-                    // 3. Subir reporte de Dependency-Track
-                    echo "Subiendo reporte de Dependency-Track..."
-                    def dtrackUpload = sh(script: """
-                        curl -s -X POST "${DD_URL}/api/v2/import-scan/" \
-                        -H "Authorization: Token ${DD_API_KEY}" \
-                        -F "engagement=${DD_ENGAGEMENT_ID}" \
-                        -F "scan_type=\"Dependency Track Finding Packaging Format (FPF) Export\"" \
-                        -F "file=@${BOM_FILE}" \
-                        -F "minimum_severity=\"Info\"" \
-                        -F "active=true" \
-                        -F "verified=false"
-                    """, returnStatus: true)
-                    
-                    if (dtrackUpload == 0) {
-                        echo "✓ Reporte de Dependency-Track subido exitosamente"
-                    } else {
-                        unstable("No se pudo subir el reporte de Dependency-Track")
-                    }
+
+                    sh 'ls -la'
+
+                    echo "Subiendo Bandit..."
+                    sh """
+                    curl -X POST "${DD_URL}/api/v2/import-scan/" \
+                    -H "Authorization: Token ${DD_API_KEY}" \
+                    -F "engagement=${DD_ENGAGEMENT_ID}" \
+                    -F "scan_type=Bandit Scan" \
+                    -F "file=@${BANDIT_REPORT}" \
+                    -F "active=true" \
+                    -F "verified=false"
+                    """
+
+                    echo "Subiendo Gitleaks..."
+                    sh """
+                    curl -X POST "${DD_URL}/api/v2/import-scan/" \
+                    -H "Authorization: Token ${DD_API_KEY}" \
+                    -F "engagement=${DD_ENGAGEMENT_ID}" \
+                    -F "scan_type=Gitleaks Scan" \
+                    -F "file=@${GITLEAKS_REPORT}"
+                    """
+
+                    echo "Subiendo Dependency-Track..."
+                    sh """
+                    curl -X POST "${DD_URL}/api/v2/import-scan/" \
+                    -H "Authorization: Token ${DD_API_KEY}" \
+                    -F "engagement=${DD_ENGAGEMENT_ID}" \
+                    -F "scan_type=Dependency Track Finding Packaging Format (FPF) Export" \
+                    -F "file=@${BOM_FILE}"
+                    """
                 }
             }
         }
+
     }
 
     post {
