@@ -3,6 +3,8 @@ pipeline {
 
     environment {
 
+        HOME = "${WORKSPACE}"
+
         // Defect Dojo
         DD_URL = 'http://defectdojo:8080'
         DD_API_KEY = credentials('defectdojo-api-key')
@@ -51,10 +53,9 @@ pipeline {
                     unstash 'pygoat-code'
                     
                     sh 'git config --global --add safe.directory $WORKSPACE/pygoat'
-                    sh 'pip install -q bandit'
                     
                     // Eliminar archivo anterior si existe
-                    sh 'rm -f BANDIT_REPORT || true'
+                    sh 'rm -f $BANDIT_REPORT || true'
                     
                     // Ejecutar Bandit capturando el exit code
                     def banditExitCode = sh(script: '''
