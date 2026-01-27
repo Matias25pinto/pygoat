@@ -191,7 +191,7 @@ pipeline {
             }
             steps {
                 script {
-                    withCredentials([string(credentialsId: 'defectdojo-api-token', variable: 'DD_API_TOKEN')]) {
+                    withCredentials([string(credentialsId: 'defectdojo-api-key', variable: 'DD_API_TOKEN')]) {
                         // 1. Verificar que el API funcione
                         def apiCheck = sh(script: '''
                             curl -s -o /dev/null -w "%{http_code}" \
