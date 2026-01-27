@@ -177,104 +177,32 @@ pipeline {
             }
         }
 
-        stage('DefectDojo Integration') {
-            agent {
-                docker {
-                    image 'curlimages/curl:8.6.0'
-                    args '--network django-defectdojo_default'
-                }
-            }
-            environment {
-                DEFECTDOJO_URL = 'http://django-defectdojo-nginx-1:8080'
-                PRODUCT_NAME = 'pygoat'
-                ENGAGEMENT_NAME = "Scan_${BUILD_NUMBER}_${BUILD_ID}"
-            }
+        stage('DefectDojo') {
+            agent any
             steps {
                 script {
-                    withCredentials([string(credentialsId: 'defectdojo-api-key', variable: 'DD_API_TOKEN')]) {
-                        // 1. Verificar que el API funcione
-                        def apiCheck = sh(script: '''
-                            curl -s -o /dev/null -w "%{http_code}" \
-                            -H "Authorization: Token $DD_API_TOKEN" \
-                            $DEFECTDOJO_URL/api/v2/users/
-                        ''', returnStdout: true).trim()
-                        
-                        if (apiCheck != "200") {
-                            error("No se puede conectar a DefectDojo. HTTP Code: ${apiCheck}")
-                        }
-                        
-                        echo "✅ DefectDojo API accesible"
-                        
-                        // 2. Buscar producto
-                        echo "Buscando producto: ${PRODUCT_NAME}"
-                        
+                    withCredentials([string(credentialsId: 'defectdojo-api-token', variable: 'DD_API_TOKEN')]) {
+                        // Subir solo Bandit primero
                         sh '''
-                            # Buscar producto existente
-                            RESPONSE=$(curl -s \
-                            -H "Authorization: Token $DD_API_TOKEN" \
-                            "$DEFECTDOJO_URL/api/v2/products/?name=$PRODUCT_NAME")
+                            echo "=== DEBUG: Subiendo solo Bandit ==="
                             
-                            echo "Respuesta de búsqueda: $RESPONSE"
-                        '''
-                        
-                        // 3. Crear producto si no existe
-                        sh '''
-                            # Intentar crear el producto
-                            CREATE_RESPONSE=$(curl -s -X POST \
+                            # Crear producto si no existe
+                            curl -s -X POST \
                             -H "Authorization: Token $DD_API_TOKEN" \
                             -H "Content-Type: application/json" \
-                            -d '{"name": "'"${PRODUCT_NAME}"'", "description": "Proyecto PyGoat", "prod_type": 1}' \
-                            "$DEFECTDOJO_URL/api/v2/products/")
+                            -d '{"name": "pygoat-debug", "description": "Debug", "prod_type": 1}' \
+                            http://localhost:8083/api/v2/products/ || true
                             
-                            echo "Respuesta creación: $CREATE_RESPONSE"
-                            
-                            # Verificar si hubo error
-                            if echo "$CREATE_RESPONSE" | grep -q "error"; then
-                                echo "⚠ Posible error al crear producto"
-                            fi
+                            # Subir reporte
+                            curl -v -X POST \
+                            -H "Authorization: Token $DD_API_TOKEN" \
+                            -F "engagement_name=DEBUG_${BUILD_NUMBER}" \
+                            -F "product_name=pygoat-debug" \
+                            -F "scan_type=Bandit Scan" \
+                            -F "file=@reporte_bandit.json" \
+                            http://localhost:8083/api/v2/import-scan/
                         '''
-                        
-                        // 4. Subir reportes si existen
-                        def reports = [
-                            ['file': 'reporte_bandit.json', 'scan_type': 'Bandit Scan'],
-                            ['file': 'gitleaks-report.json', 'scan_type': 'Gitleaks Scan'],
-                            ['file': 'bom.json', 'scan_type': 'CycloneDX Scan']
-                        ]
-                        
-                        reports.each { report ->
-                            if (fileExists(report.file)) {
-                                echo "Subiendo ${report.file} a DefectDojo..."
-                                
-                                def uploadExitCode = sh(script: """
-                                    curl -v -X POST \
-                                    -H "Authorization: Token $DD_API_TOKEN" \
-                                    -F "engagement_name=${ENGAGEMENT_NAME}" \
-                                    -F "product_name=${PRODUCT_NAME}" \
-                                    -F "scan_type=${report.scan_type}" \
-                                    -F "file=@${report.file}" \
-                                    -F "close_old_findings=true" \
-                                    -F "active=true" \
-                                    -F "verified=true" \
-                                    "$DEFECTDOJO_URL/api/v2/import-scan/"
-                                """, returnStatus: true)
-                                
-                                if (uploadExitCode == 0) {
-                                    echo "✅ ${report.file} subido exitosamente"
-                                } else {
-                                    echo "⚠ Error subiendo ${report.file}, exit code: ${uploadExitCode}"
-                                }
-                            } else {
-                                echo "⚠ ${report.file} no encontrado, omitiendo"
-                            }
-                        }
                     }
-                }
-            }
-            
-            post {
-                always {
-                    echo "Integración con DefectDojo completada"
-                    archiveArtifacts artifacts: '*.json', allowEmptyArchive: true
                 }
             }
         }
