@@ -6,7 +6,8 @@ pipeline {
         HOME = "${WORKSPACE}"
 
         // Defect Dojo
-        DD_URL = "http://django-defectdojo-nginx-1:8080"
+        DD_URL = 'http://django-defectdojo-nginx-1:8080'
+        DD_API_KEY = credentials('defectdojo-api-key')
         DD_PRODUCT_NAME = 'pygoat'
         DD_ENGAGEMENT_NAME = 'Jenkins Pipeline - Ejercicio 2'
         DD_ENGAGEMENT_ID = '2'
@@ -199,7 +200,6 @@ pipeline {
             }
             steps {
                 script {
-                    withCredentials([string(credentialsId: 'defectdojo-api-key', variable: 'SECRET_DD_API_KEY')]) {
                     unstash 'bandit-report'
                     unstash 'bom-file'
                     unstash 'gitleaks-report'
@@ -209,7 +209,7 @@ pipeline {
                     echo "Subiendo Bandit..."
                     sh """
                     curl -X POST "${DD_URL}/api/v2/import-scan/" \
-                    -H "Authorization: Token ${SECRET_DD_API_KEY}" \
+                    -H "Authorization: Token ${DD_API_KEY}" \
                     -F "engagement=${DD_ENGAGEMENT_ID}" \
                     -F "scan_type=Bandit Scan" \
                     -F "file=@${BANDIT_REPORT}" \
@@ -220,7 +220,7 @@ pipeline {
                     echo "Subiendo Gitleaks..."
                     sh """
                     curl -X POST "${DD_URL}/api/v2/import-scan/" \
-                    -H "Authorization: Token ${SECRET_DD_API_KEY}" \
+                    -H "Authorization: Token ${DD_API_KEY}" \
                     -F "engagement=${DD_ENGAGEMENT_ID}" \
                     -F "scan_type=Gitleaks Scan" \
                     -F "file=@${GITLEAKS_REPORT}"
@@ -229,7 +229,7 @@ pipeline {
                     echo "Subiendo Dependency-Track..."
                     sh """
                     curl -X POST "${DD_URL}/api/v2/import-scan/" \
-                    -H "Authorization: Token ${SECRET_DD_API_KEY}" \
+                    -H "Authorization: Token ${DD_API_KEY}" \
                     -F "engagement=${DD_ENGAGEMENT_ID}" \
                     -F "scan_type=Dependency Track Finding Packaging Format (FPF) Export" \
                     -F "file=@${BOM_FILE}"
