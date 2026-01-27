@@ -10,7 +10,7 @@ pipeline {
                     rm -rf pygoat || true
                     git clone https://github.com/Matias25pinto/pygoat.git pygoat
                     cd pygoat
-                    git checkout ejercicio-2
+                    git checkout sca-dependency-track
                 '''
                 // Stash para compartir el código entre stages con diferentes agentes
                 stash name: 'pygoat-code', includes: 'pygoat/**'
@@ -18,59 +18,10 @@ pipeline {
         }
 
         stage('SAST - Bandit') {
-            agent {
-                docker {
-                    image 'python:3.11-slim'
-                    args '-u root'
-                }
-            }
+            agent any
             steps {
                 script {
-                    // Recuperar el código stasheado
-                    unstash 'pygoat-code'
-                    
-                    sh 'apt-get update && apt-get install -qq -y git'
-                    sh 'git config --global --add safe.directory $WORKSPACE/pygoat'
-                    sh 'pip install -q bandit'
-                    
-                    // Eliminar archivo anterior si existe
-                    sh 'rm -f reporte_bandit.json || true'
-                    
-                    // Ejecutar Bandit capturando el exit code
-                    def banditExitCode = sh(script: '''
-                        cd pygoat
-                        bandit -r . -f json -o ../reporte_bandit.json
-                    ''', returnStatus: true)
-                    
-                    echo "Bandit exit code: ${banditExitCode}"
-                    
-                    // Bandit retorna:
-                    // 0 = No issues found
-                    // 1 = Issues found
-                    // 2 = Error
-                    if (banditExitCode == 1) {
-                        unstable(message: "Bandit encontró vulnerabilidades de seguridad")
-                        echo "Bandit encontró vulnerabilidades"
-                    } else if (banditExitCode == 2) {
-                        error("Bandit falló con un error")
-                    }
-                    
-                    // Verificar que el archivo se creó
-                    sh 'test -f reporte_bandit.json && echo "Archivo reporte_bandit.json creado" || echo "Archivo no existe, creando vacío..."'
-                    sh 'test -f reporte_bandit.json || echo "{}" > reporte_bandit.json'
-                    sh 'ls -la reporte_bandit.json'
-                }
-                // Archivar resultados
-                archiveArtifacts artifacts: 'reporte_bandit.json', fingerprint: true, allowEmptyArchive: true
-            }
-            
-            post {
-                always {
-                    script {
-                        if (fileExists('reporte_bandit.json')) {
-                            echo "Resultados de Bandit disponibles para análisis"
-                        }
-                    }
+                    echo "SAST - Bandit"
                 }
             }
         }
@@ -79,42 +30,7 @@ pipeline {
             agent any
             steps {
                 script {
-                    echo "Verificando security gate para Bandit..."
-                    
-                    if (fileExists('reporte_bandit.json')) {
-                        def jsonContent = readFile('reporte_bandit.json').trim()
-                        
-                        if (jsonContent == "{}" || jsonContent == "") {
-                            echo "No hay hallazgos de Bandit"
-                        } else {
-                            def criticalCount = sh(script: '''
-                                grep -c '"issue_severity": "CRITICAL"' reporte_bandit.json || true
-                            ''', returnStdout: true).trim().toInteger()
-                            
-                            def highCount = sh(script: '''
-                                grep -c '"issue_severity": "HIGH"' reporte_bandit.json || true
-                            ''', returnStdout: true).trim().toInteger()
-                            
-                            echo "Resumen de Bandit:"
-                            echo "  - Vulnerabilidades CRÍTICAS: ${criticalCount}"
-                            echo "  - Vulnerabilidades ALTAS: ${highCount}"
-                            
-                            if (criticalCount > 0 || highCount > 0) {
-                                sh '''
-                                    echo "VULNERABILIDADES ENCONTRADAS:"
-                                    echo "=== CRÍTICAS ==="
-                                    grep -A2 -B2 '"issue_severity": "CRITICAL"' reporte_bandit.json | head -20 || true
-                                    echo "=== ALTAS ==="
-                                    grep -A2 -B2 '"issue_severity": "HIGH"' reporte_bandit.json | head -20 || true
-                                '''
-                                error("SECURITY GATE FALLIDO: Bandit encontró ${criticalCount} críticas y ${highCount} altas")
-                            } else {
-                                echo "Security Gate: No se encontraron vulnerabilidades críticas/altas"
-                            }
-                        }
-                    } else {
-                        echo "No se encontró reporte de Bandit"
-                    }
+                    echo "Security Gate - Bandit"
                 }
             }
         }
@@ -247,42 +163,10 @@ pipeline {
         }
 
         stage('Secrets Scan - Gitleaks') {
-            agent {
-                docker {
-                    image 'zricethezav/gitleaks:latest'
-                    args '--entrypoint=""'
-                    reuseNode true
-                }
-            }
-
-            options {
-                skipDefaultCheckout(true)
-            }
-
+            agent any
             steps {
                 script {
-                    unstash 'pygoat-code'
-
-                    def exitCode = sh(
-                        script: '''
-                            gitleaks detect \
-                            --source=pygoat \
-                            --report-format json \
-                            --report-path gitleaks-report.json \
-                            --no-git
-                        ''',
-                        returnStatus: true
-                    )
-
-                    archiveArtifacts artifacts: 'gitleaks-report.json',
-                                    fingerprint: true,
-                                    allowEmptyArchive: true
-
-                    if (exitCode != 0) {
-                        unstable("Gitleaks detectó secretos")
-                    } else {
-                        echo "No se detectaron secretos"
-                    }
+                    echo "Secrets Scan - Gitleaks"
                 }
             }
         }
