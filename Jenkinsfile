@@ -200,6 +200,7 @@ pipeline {
             }
             steps {
                 script {
+                    withCredentials([string(credentialsId: 'DD_API_KEY', variable: 'SECRET_DD_API_KEY')]) {
                     unstash 'bandit-report'
                     unstash 'bom-file'
                     unstash 'gitleaks-report'
@@ -209,7 +210,7 @@ pipeline {
                     echo "Subiendo Bandit..."
                     sh """
                     curl -X POST "${DD_URL}/api/v2/import-scan/" \
-                    -H "Authorization: Token ${DD_API_KEY}" \
+                    -H "Authorization: Token ${SECRET_DD_API_KEY}" \
                     -F "engagement=${DD_ENGAGEMENT_ID}" \
                     -F "scan_type=Bandit Scan" \
                     -F "file=@${BANDIT_REPORT}" \
@@ -220,7 +221,7 @@ pipeline {
                     echo "Subiendo Gitleaks..."
                     sh """
                     curl -X POST "${DD_URL}/api/v2/import-scan/" \
-                    -H "Authorization: Token ${DD_API_KEY}" \
+                    -H "Authorization: Token ${SECRET_DD_API_KEY}" \
                     -F "engagement=${DD_ENGAGEMENT_ID}" \
                     -F "scan_type=Gitleaks Scan" \
                     -F "file=@${GITLEAKS_REPORT}"
@@ -229,7 +230,7 @@ pipeline {
                     echo "Subiendo Dependency-Track..."
                     sh """
                     curl -X POST "${DD_URL}/api/v2/import-scan/" \
-                    -H "Authorization: Token ${DD_API_KEY}" \
+                    -H "Authorization: Token ${SECRET_DD_API_KEY}" \
                     -F "engagement=${DD_ENGAGEMENT_ID}" \
                     -F "scan_type=Dependency Track Finding Packaging Format (FPF) Export" \
                     -F "file=@${BOM_FILE}"
