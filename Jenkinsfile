@@ -100,9 +100,10 @@ pipeline {
 
         stage('SCA - Dependency-Track') {
             agent {
-                docker {
-                    image 'python:3.11-alpine'
+                    docker {
+                    image 'ci-python-sec:1.0'
                     args '--network cicd-net'
+                    reuseNode true
                 }
             }
             steps {
