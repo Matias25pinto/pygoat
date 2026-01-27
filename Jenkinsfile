@@ -40,8 +40,9 @@ pipeline {
 
         stage('SAST - Bandit') {
             agent {
-                docker {
-                    image 'python:3.11-alpine'
+                    docker {
+                    image 'ci-python-sec:1.0'
+                    reuseNode true
                 }
             }
             steps {
