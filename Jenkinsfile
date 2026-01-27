@@ -45,6 +45,7 @@ pipeline {
             agent {
                     docker {
                     image 'ci-python-security:latest'
+                    args '--user 1001'
                     reuseNode true
                 }
             }
@@ -101,7 +102,7 @@ pipeline {
             agent {
                     docker {
                     image 'ci-python-security:latest'
-                    args '--network cicd-net'
+                    args '--user 1001 --network cicd-net'
                     reuseNode true
                 }
             }
@@ -192,9 +193,10 @@ pipeline {
 
         stage('DefectDojo - Subir Reportes') {
             agent {
-                docker {
-                    image 'curlimages/curl:8.6.0'
-                    args '--network cicd-net'
+                    docker {
+                    image 'ci-python-security:latest'
+                    args '--user 1001 --network cicd-net'
+                    reuseNode true
                 }
             }
             steps {
