@@ -139,14 +139,14 @@ pipeline {
                         exit 1
                         fi
 
-                        echo "Esperando a que la versión exista..."
+                        echo "⏳ Esperando a que la versión '$PROJECT_VERSION' exista..."
 
                         for i in {1..12}; do
                         VERSION_UUID=$(curl -s \
                             -H "X-Api-Key: $DTRACK_API_KEY" \
                             "$DTRACK_URL/api/v1/project/$PROJECT_UUID/versions" \
                             | jq -r --arg VERSION "$PROJECT_VERSION" \
-                                '.[] | select(.version == $VERSION) | .uuid')
+                            '.[] | select(.version == $VERSION) | .uuid')
 
                         echo "Intento $i - VERSION_UUID=$VERSION_UUID"
 
