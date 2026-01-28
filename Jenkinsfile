@@ -193,8 +193,8 @@ pipeline {
             }
             steps {
                 script {
-                    unstash 'bandit-report'
-                    unstash 'gitleaks-report'
+                    unstash "${BANDIT_REPORT}"
+                    unstash "${GITLEAKS_REPORT}"
 
                     sh 'ls -la'
 
