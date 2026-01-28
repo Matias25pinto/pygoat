@@ -110,13 +110,13 @@ pipeline {
                 script {
                     unstash 'pygoat-code'
 
-                    // Generar SBOM desde requirements.txt
+                    // 1️⃣ Generar SBOM
                     sh '''
                         cd pygoat
                         cyclonedx-py requirements requirements.txt -o ../$BOM_FILE --no-validate
                     '''
 
-                    // Subir SBOM a Dependency-Track
+                    // 2️⃣ Subir SBOM a Dependency-Track
                     sh '''
                         curl -s -X POST "$DTRACK_URL/api/v1/bom" \
                         -H "X-Api-Key: $DTRACK_API_KEY" \
@@ -126,23 +126,74 @@ pipeline {
                         -F "bom=@$BOM_FILE"
                     '''
 
-                    // Generar FPF desde Dependency-Track
+                    // 3️⃣ Obtener UUIDs del proyecto y versión
                     sh '''
-                        PROJECT_UUID=$(curl -s -X GET "$DTRACK_URL/api/v1/project?name=$PROJECT_NAME" -H "X-Api-Key: $DTRACK_API_KEY" | jq -r '.[0].uuid')
-                        VERSION_UUID=$(curl -s -X GET "$DTRACK_URL/api/v1/project/$PROJECT_UUID/version?version=$PROJECT_VERSION" -H "X-Api-Key: $DTRACK_API_KEY" | jq -r '.[0].uuid')
-                        curl -s -X GET "$DTRACK_URL/api/v1/finding/project/$PROJECT_UUID/version/$VERSION_UUID/fpf" \
-                        -H "X-Api-Key: $DTRACK_API_KEY" -o $FPF_FILE
+                        PROJECT_UUID=$(curl -s \
+                        -H "X-Api-Key: $DTRACK_API_KEY" \
+                        "$DTRACK_URL/api/v1/project?name=$PROJECT_NAME" | jq -r '.[0].uuid')
+
+                        VERSION_UUID=$(curl -s \
+                        -H "X-Api-Key: $DTRACK_API_KEY" \
+                        "$DTRACK_URL/api/v1/project/$PROJECT_UUID/version?version=$PROJECT_VERSION" | jq -r '.[0].uuid')
+
+                        echo "PROJECT_UUID=$PROJECT_UUID"
+                        echo "VERSION_UUID=$VERSION_UUID"
+
+                        if [ -z "$PROJECT_UUID" ] || [ -z "$VERSION_UUID" ]; then
+                        echo "❌ No se pudo obtener PROJECT_UUID o VERSION_UUID"
+                        exit 1
+                        fi
+
+                        echo "Esperando a que Dependency-Track genere findings..."
+
+                        for i in {1..10}; do
+                        FINDINGS_COUNT=$(curl -s \
+                            -H "X-Api-Key: $DTRACK_API_KEY" \
+                            "$DTRACK_URL/api/v1/finding/project/$PROJECT_UUID/version/$VERSION_UUID" \
+                            | jq 'length')
+
+                        echo "Intento $i - Findings: $FINDINGS_COUNT"
+
+                        if [ "$FINDINGS_COUNT" -gt 0 ]; then
+                            echo "✅ Findings generados"
+                            break
+                        fi
+
+                        sleep 15
+                        done
+                    '''
+
+                    // 4️⃣ Exportar FPF (cuando ya hay findings)
+                    sh '''
+                        PROJECT_UUID=$(curl -s \
+                        -H "X-Api-Key: $DTRACK_API_KEY" \
+                        "$DTRACK_URL/api/v1/project?name=$PROJECT_NAME" | jq -r '.[0].uuid')
+
+                        VERSION_UUID=$(curl -s \
+                        -H "X-Api-Key: $DTRACK_API_KEY" \
+                        "$DTRACK_URL/api/v1/project/$PROJECT_UUID/version?version=$PROJECT_VERSION" | jq -r '.[0].uuid')
+
+                        curl -s \
+                        -H "X-Api-Key: $DTRACK_API_KEY" \
+                        "$DTRACK_URL/api/v1/finding/project/$PROJECT_UUID/version/$VERSION_UUID/fpf" \
+                        -o $FPF_FILE
+
+                        if [ ! -s "$FPF_FILE" ]; then
+                        echo "⚠ FPF generado pero vacío"
+                        else
+                        echo "✅ FPF generado correctamente"
+                        fi
                     '''
                 }
 
+                // 5️⃣ Archivos para siguientes stages
                 stash name: 'bom-file', includes: "${BOM_FILE}"
                 archiveArtifacts artifacts: "${BOM_FILE}", fingerprint: true
 
-                stash name: 'fpf.json', includes: "${FPF_FILE}"
+                stash name: 'dependency-track-fpf', includes: "${FPF_FILE}"
                 archiveArtifacts artifacts: "${FPF_FILE}", fingerprint: true
             }
         }
-
 
         stage('Secrets Scan - Gitleaks') {
             agent {
