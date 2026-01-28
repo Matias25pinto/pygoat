@@ -87,7 +87,7 @@ pipeline {
             post {
                 always {
                     script {
-                        if (fileExists("${BANDIT_REPORT}")) {
+                        if (fileExists(BANDIT_REPORT)) {
                             echo "Resultados de Bandit disponibles para análisis"
                         }
                     }
@@ -101,8 +101,8 @@ pipeline {
                 script {
                     echo "Verificando security gate para Bandit..."
                     
-                    if (fileExists(${BANDIT_REPORT})) {
-                        def jsonContent = readFile(${BANDIT_REPORT}).trim()
+                    if (fileExists(BANDIT_REPORT)) {
+                        def jsonContent = readFile(BANDIT_REPORT).trim()
                         
                         if (jsonContent == "{}" || jsonContent == "") {
                             echo "No hay hallazgos de Bandit"
@@ -182,7 +182,7 @@ pipeline {
             post {
                 always {
                     script {
-                        if (fileExists("${BOM_FILE}")) {
+                        if (fileExists(BOM_FILE)) {
                             echo "Resultados de Dependency-Track disponibles para análisis"
                         }
                     }
