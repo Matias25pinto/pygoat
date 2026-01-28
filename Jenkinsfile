@@ -145,7 +145,8 @@ pipeline {
                         VERSION_UUID=$(curl -s \
                             -H "X-Api-Key: $DTRACK_API_KEY" \
                             "$DTRACK_URL/api/v1/project/$PROJECT_UUID/versions" \
-                            | jq -r ".[] | select(.version==\"$PROJECT_VERSION\") | .uuid")
+                            | jq -r --arg VERSION "$PROJECT_VERSION" \
+                                '.[] | select(.version == $VERSION) | .uuid')
 
                         echo "Intento $i - VERSION_UUID=$VERSION_UUID"
 
