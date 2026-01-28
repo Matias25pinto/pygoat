@@ -99,7 +99,7 @@ pipeline {
             agent {
                 docker {
                     image 'ci-python-security:latest'
-                    args '-u ciuser --network cicd-net'
+                    args '-u root --network cicd-net'
                     reuseNode true
                 }
             }
