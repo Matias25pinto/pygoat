@@ -1,6 +1,27 @@
 pipeline {
     agent any
 
+    environment {
+
+        // Defect Dojo
+        DD_URL = 'http://django-defectdojo-nginx-1:8080'
+        DD_API_KEY = credentials('defectdojo-api-key')
+        DD_PRODUCT_NAME = 'pygoat'
+        DD_ENGAGEMENT_NAME = 'Jenkins Pipeline - Ejercicio 2'
+        DD_ENGAGEMENT_ID = '2'
+        
+        // Nombres de archivos
+        BANDIT_REPORT = 'reporte_bandit.json'
+        GITLEAKS_REPORT = 'gitleaks-report.json'
+        BOM_FILE = 'bom.json'
+
+        //Dependency Track
+        DTRACK_URL = 'http://dtrack-api:8080'
+        DTRACK_API_KEY = credentials('dependency-track-api-key')
+        PROJECT_NAME = 'pygoat'
+        PROJECT_VERSION = "ejercicio-2"
+    }
+
     stages {
 
         stage('Checkout') {
@@ -9,9 +30,11 @@ pipeline {
                 sh '''
                     rm -rf pygoat || true
                     git clone https://github.com/Matias25pinto/pygoat.git pygoat
+                    git config --global --add safe.directory $WORKSPACE/pygoat
                     cd pygoat
                     git checkout ejercicio-2
                 '''
+
                 // Stash para compartir el código entre stages con diferentes agentes
                 stash name: 'pygoat-code', includes: 'pygoat/**'
             }
@@ -19,9 +42,9 @@ pipeline {
 
         stage('SAST - Bandit') {
             agent {
-                docker {
-                    image 'python:3.11-slim'
-                    args '-u root'
+                    docker {
+                    image 'ci-python-security:latest'
+                    reuseNode true
                 }
             }
             steps {
@@ -29,18 +52,14 @@ pipeline {
                     // Recuperar el código stasheado
                     unstash 'pygoat-code'
                     
-                    sh 'apt-get update && apt-get install -qq -y git'
-                    sh 'git config --global --add safe.directory $WORKSPACE/pygoat'
-                    sh 'pip install -q bandit'
-                    
                     // Eliminar archivo anterior si existe
-                    sh 'rm -f reporte_bandit.json || true'
+                    sh "rm -f ${BANDIT_REPORT} || true"
                     
                     // Ejecutar Bandit capturando el exit code
                     def banditExitCode = sh(script: '''
                         cd pygoat
-                        bandit -r . -f json -o ../reporte_bandit.json
-                    ''', returnStatus: true)
+                        bandit -r . -f json -o ../$BANDIT_REPORT
+                    ''', returnStatus: true, env: ['BANDIT_REPORT': BANDIT_REPORT])
                     
                     echo "Bandit exit code: ${banditExitCode}"
                     
@@ -56,18 +75,18 @@ pipeline {
                     }
                     
                     // Verificar que el archivo se creó
-                    sh 'test -f reporte_bandit.json && echo "Archivo reporte_bandit.json creado" || echo "Archivo no existe, creando vacío..."'
-                    sh 'test -f reporte_bandit.json || echo "{}" > reporte_bandit.json'
-                    sh 'ls -la reporte_bandit.json'
+                    sh "test -f ${BANDIT_REPORT} && echo 'Archivo ${BANDIT_REPORT} creado' || echo 'Archivo no existe, creando vacío...'"
+                    sh "test -f ${BANDIT_REPORT} || echo '{}' > ${BANDIT_REPORT}"
+                    sh "ls -la ${BANDIT_REPORT}"
                 }
                 // Archivar resultados
-                archiveArtifacts artifacts: 'reporte_bandit.json', fingerprint: true, allowEmptyArchive: true
+                archiveArtifacts artifacts: "${BANDIT_REPORT}", fingerprint: true, allowEmptyArchive: true
             }
             
             post {
                 always {
                     script {
-                        if (fileExists('reporte_bandit.json')) {
+                        if (fileExists(BANDIT_REPORT)) {
                             echo "Resultados de Bandit disponibles para análisis"
                         }
                     }
@@ -81,32 +100,32 @@ pipeline {
                 script {
                     echo "Verificando security gate para Bandit..."
                     
-                    if (fileExists('reporte_bandit.json')) {
-                        def jsonContent = readFile('reporte_bandit.json').trim()
+                    if (fileExists(BANDIT_REPORT)) {
+                        def jsonContent = readFile(BANDIT_REPORT).trim()
                         
                         if (jsonContent == "{}" || jsonContent == "") {
                             echo "No hay hallazgos de Bandit"
                         } else {
                             def criticalCount = sh(script: '''
-                                grep -c '"issue_severity": "CRITICAL"' reporte_bandit.json || true
-                            ''', returnStdout: true).trim().toInteger()
+                                grep -c '"issue_severity": "CRITICAL"' $BANDIT_REPORT || true
+                            ''', returnStdout: true, env: ['BANDIT_REPORT': BANDIT_REPORT]).trim().toInteger()
                             
                             def highCount = sh(script: '''
-                                grep -c '"issue_severity": "HIGH"' reporte_bandit.json || true
-                            ''', returnStdout: true).trim().toInteger()
+                                grep -c '"issue_severity": "HIGH"' $BANDIT_REPORT || true
+                            ''', returnStdout: true, env: ['BANDIT_REPORT': BANDIT_REPORT]).trim().toInteger()
                             
                             echo "Resumen de Bandit:"
                             echo "  - Vulnerabilidades CRÍTICAS: ${criticalCount}"
                             echo "  - Vulnerabilidades ALTAS: ${highCount}"
                             
                             if (criticalCount > 0 || highCount > 0) {
-                                sh '''
+                                sh """
                                     echo "VULNERABILIDADES ENCONTRADAS:"
                                     echo "=== CRÍTICAS ==="
-                                    grep -A2 -B2 '"issue_severity": "CRITICAL"' reporte_bandit.json | head -20 || true
+                                    grep -A2 -B2 '"issue_severity": "CRITICAL"' ${BANDIT_REPORT} | head -20 || true
                                     echo "=== ALTAS ==="
-                                    grep -A2 -B2 '"issue_severity": "HIGH"' reporte_bandit.json | head -20 || true
-                                '''
+                                    grep -A2 -B2 '"issue_severity": "HIGH"' ${BANDIT_REPORT} | head -20 || true
+                                """
                                 error("SECURITY GATE FALLIDO: Bandit encontró ${criticalCount} críticas y ${highCount} altas")
                             } else {
                                 echo "Security Gate: No se encontraron vulnerabilidades críticas/altas"
@@ -122,28 +141,20 @@ pipeline {
         stage('SCA - Dependency-Track') {
             agent {
                 docker {
-                    image 'python:3.11-slim'
-                    args '-u root --network cicd-net'
+                    image 'ci-python-security:latest'
+                    args '--network cicd-net'
+                    reuseNode true
                 }
-            }
-            environment {
-                DTRACK_URL = 'http://dtrack-api:8080'
-                DTRACK_API_KEY = credentials('dependency-track-api-key')
-                PROJECT_NAME = 'pygoat'
-                PROJECT_VERSION = "ejercicio-2"
             }
             steps {
                 script {
                     unstash 'pygoat-code'
 
-                    sh 'apt-get update && apt-get install -qq -y git curl'
-                    sh 'pip install -q cyclonedx-bom'
-
                     // Generar SBOM desde requirements.txt
-                    sh '''
+                    sh """
                         cd pygoat
-                        cyclonedx-py requirements requirements.txt -o ../bom.json
-                    '''
+                        cyclonedx-py requirements requirements.txt -o ../${BOM_FILE}
+                    """
 
                     // Subir SBOM a Dependency-Track
                     def uploadExitCode = sh(script: '''
@@ -152,8 +163,8 @@ pipeline {
                         -F "projectName=$PROJECT_NAME" \
                         -F "projectVersion=$PROJECT_VERSION" \
                         -F "autoCreate=true" \
-                        -F "bom=@bom.json"
-                    ''', returnStatus: true)
+                        -F "bom=@$BOM_FILE"
+                    ''', returnStatus: true, env: ['BOM_FILE': BOM_FILE])
                     
                     echo "Curl exit code: ${uploadExitCode}"
                     
@@ -164,13 +175,13 @@ pipeline {
                 }
 
                 // Archivar resultados
-                archiveArtifacts artifacts: 'bom.json', fingerprint: true, allowEmptyArchive: true
+                archiveArtifacts artifacts: "${BOM_FILE}", fingerprint: true, allowEmptyArchive: true
             }
 
             post {
                 always {
                     script {
-                        if (fileExists('bom.json')) {
+                        if (fileExists(BOM_FILE)) {
                             echo "Resultados de Dependency-Track disponibles para análisis"
                         }
                     }
@@ -181,18 +192,13 @@ pipeline {
         stage('Security Gate - Dependency-Track') {
             agent {
                 docker {
-                    image 'python:3.11-slim'
-                    args '-u root --network cicd-net'
+                    image 'ci-python-security:latest'
+                    args '--network cicd-net'
+                    reuseNode true
                 }
-            }
-            environment {
-                DTRACK_URL = 'http://dtrack-api:8080'
-                PROJECT_NAME = 'pygoat'
-                PROJECT_VERSION = "ejercicio-2"
             }
             steps {
                 script {
-                    sh 'apt-get update && apt-get install -y curl jq'
                     sleep(time: 30, unit: 'SECONDS')
                     
                     withCredentials([string(credentialsId: 'dependency-track-api-key', variable: 'DTRACK_API_KEY')]) {
@@ -268,13 +274,13 @@ pipeline {
                             gitleaks detect \
                             --source=pygoat \
                             --report-format json \
-                            --report-path gitleaks-report.json \
+                            --report-path $GITLEAKS_REPORT \
                             --no-git
                         ''',
-                        returnStatus: true
+                        returnStatus: true, env: ['GITLEAKS_REPORT': GITLEAKS_REPORT]
                     )
 
-                    archiveArtifacts artifacts: 'gitleaks-report.json',
+                    archiveArtifacts artifacts: "${GITLEAKS_REPORT}",
                                     fingerprint: true,
                                     allowEmptyArchive: true
 
