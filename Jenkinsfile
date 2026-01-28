@@ -126,27 +126,48 @@ pipeline {
                         -F "bom=@$BOM_FILE"
                     '''
 
-                    // 3️⃣ Obtener UUIDs del proyecto y versión
+                    // 3️⃣ Obtener PROJECT_UUID y esperar VERSION_UUID
                     sh '''
                         PROJECT_UUID=$(curl -s \
                         -H "X-Api-Key: $DTRACK_API_KEY" \
                         "$DTRACK_URL/api/v1/project?name=$PROJECT_NAME" | jq -r '.[0].uuid')
 
-                        VERSION_UUID=$(curl -s \
-                        -H "X-Api-Key: $DTRACK_API_KEY" \
-                        "$DTRACK_URL/api/v1/project/$PROJECT_UUID/version?version=$PROJECT_VERSION" | jq -r '.[0].uuid')
-
                         echo "PROJECT_UUID=$PROJECT_UUID"
-                        echo "VERSION_UUID=$VERSION_UUID"
 
-                        if [ -z "$PROJECT_UUID" ] || [ -z "$VERSION_UUID" ]; then
-                        echo "❌ No se pudo obtener PROJECT_UUID o VERSION_UUID"
+                        if [ -z "$PROJECT_UUID" ]; then
+                        echo "❌ No se pudo obtener PROJECT_UUID"
                         exit 1
                         fi
 
+                        echo "Esperando a que la versión exista..."
+
+                        for i in {1..12}; do
+                        VERSION_UUID=$(curl -s \
+                            -H "X-Api-Key: $DTRACK_API_KEY" \
+                            "$DTRACK_URL/api/v1/project/$PROJECT_UUID/versions" \
+                            | jq -r ".[] | select(.version==\"$PROJECT_VERSION\") | .uuid")
+
+                        echo "Intento $i - VERSION_UUID=$VERSION_UUID"
+
+                        if [ -n "$VERSION_UUID" ]; then
+                            echo "✅ Versión encontrada"
+                            break
+                        fi
+
+                        sleep 10
+                        done
+
+                        if [ -z "$VERSION_UUID" ]; then
+                        echo "❌ La versión nunca fue creada"
+                        exit 1
+                        fi
+                    '''
+
+                    // 4️⃣ Esperar findings
+                    sh '''
                         echo "Esperando a que Dependency-Track genere findings..."
 
-                        for i in {1..10}; do
+                        for i in {1..12}; do
                         FINDINGS_COUNT=$(curl -s \
                             -H "X-Api-Key: $DTRACK_API_KEY" \
                             "$DTRACK_URL/api/v1/finding/project/$PROJECT_UUID/version/$VERSION_UUID" \
@@ -163,16 +184,8 @@ pipeline {
                         done
                     '''
 
-                    // 4️⃣ Exportar FPF (cuando ya hay findings)
+                    // 5️⃣ Exportar FPF
                     sh '''
-                        PROJECT_UUID=$(curl -s \
-                        -H "X-Api-Key: $DTRACK_API_KEY" \
-                        "$DTRACK_URL/api/v1/project?name=$PROJECT_NAME" | jq -r '.[0].uuid')
-
-                        VERSION_UUID=$(curl -s \
-                        -H "X-Api-Key: $DTRACK_API_KEY" \
-                        "$DTRACK_URL/api/v1/project/$PROJECT_UUID/version?version=$PROJECT_VERSION" | jq -r '.[0].uuid')
-
                         curl -s \
                         -H "X-Api-Key: $DTRACK_API_KEY" \
                         "$DTRACK_URL/api/v1/finding/project/$PROJECT_UUID/version/$VERSION_UUID/fpf" \
@@ -186,7 +199,7 @@ pipeline {
                     '''
                 }
 
-                // 5️⃣ Archivos para siguientes stages
+                // 6️⃣ Archivos para siguientes stages
                 stash name: 'bom-file', includes: "${BOM_FILE}"
                 archiveArtifacts artifacts: "${BOM_FILE}", fingerprint: true
 
