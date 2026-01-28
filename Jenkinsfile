@@ -204,7 +204,7 @@ pipeline {
                             -F "scan_date=$SCAN_DATE" \
                             -F "file=@$BANDIT_REPORT" \
                             -F "active=true" \
-                            -F "verified=false"
+                            -F "verified=true"
                         ''',
                         returnStatus: true, env: ['DD_API_KEY': DD_API_KEY, 'DD_ENGAGEMENT_ID': DD_ENGAGEMENT_ID, 'SCAN_DATE': SCAN_DATE, 'BANDIT_REPORT': BANDIT_REPORT]
                     )
@@ -217,7 +217,9 @@ pipeline {
                             -F "engagement=$DD_ENGAGEMENT_ID" \
                             -F "scan_type=Gitleaks Scan" \
                             -F "scan_date=$SCAN_DATE" \
-                            -F "file=@$GITLEAKS_REPORT"
+                            -F "file=@$GITLEAKS_REPORT" \
+                            -F "active=true" \
+                            -F "verified=true"
                         ''',
                         returnStatus: true, env: ['DD_API_KEY': DD_API_KEY, 'DD_ENGAGEMENT_ID': DD_ENGAGEMENT_ID, 'SCAN_DATE': SCAN_DATE, 'GITLEAKS_REPORT': GITLEAKS_REPORT]
                     )
