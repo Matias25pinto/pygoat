@@ -16,6 +16,7 @@ pipeline {
         BANDIT_REPORT = 'reporte_bandit.json'
         GITLEAKS_REPORT = 'gitleaks-report.json'
         BOM_FILE = 'bom.json'
+        FPF_FILE = 'fpf.json'
 
         //Dependency Track
         DTRACK_URL = 'http://dtrack-api:8080'
@@ -98,46 +99,49 @@ pipeline {
 
 
         stage('SCA - Dependency-Track') {
-    agent {
-        docker {
-            image 'ci-python-security:latest'
-            args '--network cicd-net'
-            reuseNode true
+            agent {
+                docker {
+                    image 'ci-python-security:latest'
+                    args '--network cicd-net'
+                    reuseNode true
+                }
+            }
+            steps {
+                script {
+                    unstash 'pygoat-code'
+
+                    // Generar SBOM desde requirements.txt
+                    sh '''
+                        cd pygoat
+                        cyclonedx-py requirements requirements.txt -o ../$BOM_FILE --no-validate
+                    '''
+
+                    // Subir SBOM a Dependency-Track
+                    sh '''
+                        curl -s -X POST "$DTRACK_URL/api/v1/bom" \
+                        -H "X-Api-Key: $DTRACK_API_KEY" \
+                        -F "projectName=$PROJECT_NAME" \
+                        -F "projectVersion=$PROJECT_VERSION" \
+                        -F "autoCreate=true" \
+                        -F "bom=@$BOM_FILE"
+                    '''
+
+                    // Generar FPF desde Dependency-Track
+                    sh '''
+                        PROJECT_UUID=$(curl -s -X GET "$DTRACK_URL/api/v1/project?name=$PROJECT_NAME" -H "X-Api-Key: $DTRACK_API_KEY" | jq -r '.[0].uuid')
+                        VERSION_UUID=$(curl -s -X GET "$DTRACK_URL/api/v1/project/$PROJECT_UUID/version?version=$PROJECT_VERSION" -H "X-Api-Key: $DTRACK_API_KEY" | jq -r '.[0].uuid')
+                        curl -s -X GET "$DTRACK_URL/api/v1/finding/project/$PROJECT_UUID/version/$VERSION_UUID/fpf" \
+                        -H "X-Api-Key: $DTRACK_API_KEY" -o dependency-track.fpf.json
+                    '''
+                }
+
+                stash name: 'bom-file', includes: "${BOM_FILE}"
+                archiveArtifacts artifacts: "${BOM_FILE}", fingerprint: true
+
+                stash name: 'dependency-track-fpf', includes: "${FPF_FILE}"
+                archiveArtifacts artifacts: "${FPF_FILE}", fingerprint: true
+            }
         }
-    }
-    steps {
-        script {
-            unstash 'pygoat-code'
-
-            // Generar SBOM desde requirements.txt
-            sh '''
-                cd pygoat
-                cyclonedx-py requirements requirements.txt -o ../$BOM_FILE --no-validate
-            '''
-
-            // Subir SBOM a Dependency-Track
-            sh '''
-                curl -s -X POST "$DTRACK_URL/api/v1/bom" \
-                -H "X-Api-Key: $DTRACK_API_KEY" \
-                -F "projectName=$PROJECT_NAME" \
-                -F "projectVersion=$PROJECT_VERSION" \
-                -F "autoCreate=true" \
-                -F "bom=@$BOM_FILE"
-            '''
-
-            // Generar FPF desde Dependency-Track
-            sh '''
-                PROJECT_UUID=$(curl -s -X GET "$DTRACK_URL/api/v1/project?name=$PROJECT_NAME" -H "X-Api-Key: $DTRACK_API_KEY" | jq -r '.[0].uuid')
-                VERSION_UUID=$(curl -s -X GET "$DTRACK_URL/api/v1/project/$PROJECT_UUID/version?version=$PROJECT_VERSION" -H "X-Api-Key: $DTRACK_API_KEY" | jq -r '.[0].uuid')
-                curl -s -X GET "$DTRACK_URL/api/v1/finding/project/$PROJECT_UUID/version/$VERSION_UUID/fpf" \
-                -H "X-Api-Key: $DTRACK_API_KEY" -o dependency-track.fpf.json
-            '''
-        }
-
-        stash name: 'dependency-track-fpf', includes: 'dependency-track.fpf.json'
-        archiveArtifacts artifacts: 'dependency-track.fpf.json', fingerprint: true
-    }
-}
 
 
         stage('Secrets Scan - Gitleaks') {
@@ -222,7 +226,7 @@ pipeline {
                     -H "Authorization: Token ${DD_API_KEY}" \
                     -F "engagement=${DD_ENGAGEMENT_ID}" \
                     -F "scan_type=Dependency Track Finding Packaging Format (FPF) Export" \
-                    -F "file=@dependency-track.fpf.json"
+                    -F "file=@${FPF_FILE}"
                     """
                 }
             }
