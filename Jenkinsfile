@@ -216,13 +216,13 @@ pipeline {
                     -F "file=@${GITLEAKS_REPORT}"
                     """
 
-                    echo "Subiendo Dependency-Track..."
+                    echo "Subiendo Dependency-Track (FPF)..."
                     sh """
                     curl -X POST "${DD_URL}/api/v2/import-scan/" \
                     -H "Authorization: Token ${DD_API_KEY}" \
                     -F "engagement=${DD_ENGAGEMENT_ID}" \
                     -F "scan_type=Dependency Track Finding Packaging Format (FPF) Export" \
-                    -F "file=@${BOM_FILE}"
+                    -F "file=@dependency-track.fpf.json"
                     """
                 }
             }
