@@ -138,7 +138,7 @@ pipeline {
                 stash name: 'bom-file', includes: "${BOM_FILE}"
                 archiveArtifacts artifacts: "${BOM_FILE}", fingerprint: true
 
-                stash name: 'dependency-track-fpf', includes: "${FPF_FILE}"
+                stash name: 'fpf.json', includes: "${FPF_FILE}"
                 archiveArtifacts artifacts: "${FPF_FILE}", fingerprint: true
             }
         }
