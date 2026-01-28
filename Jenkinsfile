@@ -111,6 +111,7 @@ pipeline {
                     // Generar SBOM desde requirements.txt
                     sh """
                         cd pygoat
+                        export PATH=/usr/local/bin:${PATH}
                         cyclonedx-py requirements requirements.txt -o ../${BOM_FILE}
                     """
 
