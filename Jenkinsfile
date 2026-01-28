@@ -100,7 +100,7 @@ pipeline {
             agent {
                 docker {
                     image 'ci-python-security:latest'
-                    args '-u root --network cicd-net'
+                    args '--network cicd-net'
                     reuseNode true
                 }
             }
@@ -151,7 +151,7 @@ pipeline {
             agent {
                 docker {
                     image 'ci-python-security:latest'
-                    args '-u root --network cicd-net'
+                    args '--network cicd-net'
                     reuseNode true
                 }
             }
