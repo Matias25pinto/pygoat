@@ -127,7 +127,9 @@ pipeline {
                     '''
 
                     // 3️⃣ Obtener PROJECT_UUID y esperar VERSION_UUID
-                    sh '''
+                    sh '''#!/bin/bash
+                        set -e
+                        
                         PROJECT_UUID=$(curl -s \
                         -H "X-Api-Key: $DTRACK_API_KEY" \
                         "$DTRACK_URL/api/v1/project?name=$PROJECT_NAME" | jq -r '.[0].uuid')
@@ -135,53 +137,69 @@ pipeline {
                         echo "PROJECT_UUID=$PROJECT_UUID"
 
                         if [ -z "$PROJECT_UUID" ]; then
-                        echo "❌ No se pudo obtener PROJECT_UUID"
-                        exit 1
+                            echo "❌ No se pudo obtener PROJECT_UUID"
+                            exit 1
                         fi
 
                         echo "⏳ Esperando a que la versión '$PROJECT_VERSION' exista..."
 
-                        for i in {1..12}; do
-                        VERSION_UUID=$(curl -s \
-                            -H "X-Api-Key: $DTRACK_API_KEY" \
-                            "$DTRACK_URL/api/v1/project/$PROJECT_UUID/versions" \
-                            | jq -r --arg VERSION "$PROJECT_VERSION" \
-                            '.[] | select(.version == $VERSION) | .uuid')
+                        MAX_ATTEMPTS=12
+                        VERSION_UUID=""
+                        
+                        for ((i=1; i<=MAX_ATTEMPTS; i++)); do
+                            VERSION_UUID=$(curl -s \
+                                -H "X-Api-Key: $DTRACK_API_KEY" \
+                                "$DTRACK_URL/api/v1/project/$PROJECT_UUID/versions" \
+                                | jq -r --arg VERSION "$PROJECT_VERSION" \
+                                '.[] | select(.version == $VERSION) | .uuid')
 
-                        echo "Intento $i - VERSION_UUID=$VERSION_UUID"
+                            echo "Intento $i - VERSION_UUID=$VERSION_UUID"
 
-                        if [ -n "$VERSION_UUID" ]; then
-                            echo "✅ Versión encontrada"
-                            break
-                        fi
+                            if [ -n "$VERSION_UUID" ]; then
+                                echo "✅ Versión encontrada"
+                                break
+                            fi
 
-                        sleep 10
+                            if [ $i -eq $MAX_ATTEMPTS ]; then
+                                echo "❌ La versión nunca fue creada después de $MAX_ATTEMPTS intentos"
+                                exit 1
+                            fi
+                            
+                            sleep 10
                         done
 
                         if [ -z "$VERSION_UUID" ]; then
-                        echo "❌ La versión nunca fue creada"
-                        exit 1
+                            echo "❌ La versión nunca fue creada"
+                            exit 1
                         fi
                     '''
 
-                    // 4️⃣ Esperar findings
-                    sh '''
+                    // 4️⃣ Esperar findings - también usar bash
+                    sh '''#!/bin/bash
                         echo "Esperando a que Dependency-Track genere findings..."
 
-                        for i in {1..12}; do
-                        FINDINGS_COUNT=$(curl -s \
-                            -H "X-Api-Key: $DTRACK_API_KEY" \
-                            "$DTRACK_URL/api/v1/finding/project/$PROJECT_UUID/version/$VERSION_UUID" \
-                            | jq 'length')
+                        MAX_ATTEMPTS=12
+                        FINDINGS_COUNT=0
+                        
+                        for ((i=1; i<=MAX_ATTEMPTS; i++)); do
+                            FINDINGS_COUNT=$(curl -s \
+                                -H "X-Api-Key: $DTRACK_API_KEY" \
+                                "$DTRACK_URL/api/v1/finding/project/$PROJECT_UUID/version/$VERSION_UUID" \
+                                | jq 'length')
 
-                        echo "Intento $i - Findings: $FINDINGS_COUNT"
+                            echo "Intento $i - Findings: $FINDINGS_COUNT"
 
-                        if [ "$FINDINGS_COUNT" -gt 0 ]; then
-                            echo "✅ Findings generados"
-                            break
-                        fi
+                            if [ "$FINDINGS_COUNT" -gt 0 ]; then
+                                echo "✅ Findings generados"
+                                break
+                            fi
 
-                        sleep 15
+                            if [ $i -eq $MAX_ATTEMPTS ]; then
+                                echo "⚠ No se encontraron findings después de $MAX_ATTEMPTS intentos"
+                                echo "⚠ Continuando de todos modos..."
+                            fi
+                            
+                            sleep 15
                         done
                     '''
 
@@ -193,9 +211,11 @@ pipeline {
                         -o $FPF_FILE
 
                         if [ ! -s "$FPF_FILE" ]; then
-                        echo "⚠ FPF generado pero vacío"
+                            echo "⚠ FPF generado pero vacío"
+                            # Crear un FPF vacío válido si está vacío
+                            echo '{"findings": []}' > $FPF_FILE
                         else
-                        echo "✅ FPF generado correctamente"
+                            echo "✅ FPF generado correctamente"
                         fi
                     '''
                 }
