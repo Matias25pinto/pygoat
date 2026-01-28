@@ -205,28 +205,20 @@ pipeline {
                             -F "active=true" \
                             -F "verified=false"
                         ''',
-                        returnStatus: true, env: ['BANDIT_REPORT': BANDIT_REPORT, 'DD_API_KEY': DD_API_KEY]
+                        returnStatus: true, env: ['DD_API_KEY': DD_API_KEY, 'DD_ENGAGEMENT_ID': DD_ENGAGEMENT_ID, 'BANDIT_REPORT': BANDIT_REPORT]
                     )
 
-                    
-                    sh """
-                    curl -X POST "${DD_URL}/api/v2/import-scan/" \
-                    -H "Authorization: Token ${DD_API_KEY}" \
-                    -F "engagement=${DD_ENGAGEMENT_ID}" \
-                    -F "scan_type=Bandit Scan" \
-                    -F "file=@${BANDIT_REPORT}" \
-                    -F "active=true" \
-                    -F "verified=false"
-                    """
-
                     echo "Subiendo Gitleaks..."
-                    sh """
-                    curl -X POST "${DD_URL}/api/v2/import-scan/" \
-                    -H "Authorization: Token ${DD_API_KEY}" \
-                    -F "engagement=${DD_ENGAGEMENT_ID}" \
-                    -F "scan_type=Gitleaks Scan" \
-                    -F "file=@${GITLEAKS_REPORT}"
-                    """
+                    sh(
+                        script: '''
+                            curl -X POST "${DD_URL}/api/v2/import-scan/" \
+                            -H "Authorization: Token ${DD_API_KEY}" \
+                            -F "engagement=${DD_ENGAGEMENT_ID}" \
+                            -F "scan_type=Gitleaks Scan" \
+                            -F "file=@${GITLEAKS_REPORT}"
+                        ''',
+                        returnStatus: true, env: ['DD_API_KEY': DD_API_KEY, 'DD_ENGAGEMENT_ID': DD_ENGAGEMENT_ID, 'GITLEAKS_REPORT': GITLEAKS_REPORT]
+                    )
                 }
             }
         }
