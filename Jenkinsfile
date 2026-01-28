@@ -95,50 +95,6 @@ pipeline {
             }
         }
 
-        stage('Security Gate - Bandit') {
-            agent any
-            steps {
-                script {
-                    echo "Verificando security gate para Bandit..."
-                    
-                    if (fileExists(BANDIT_REPORT)) {
-                        def jsonContent = readFile(BANDIT_REPORT).trim()
-                        
-                        if (jsonContent == "{}" || jsonContent == "") {
-                            echo "No hay hallazgos de Bandit"
-                        } else {
-                            def criticalCount = sh(script: '''
-                                grep -c '"issue_severity": "CRITICAL"' $BANDIT_REPORT || true
-                            ''', returnStdout: true, env: ['BANDIT_REPORT': BANDIT_REPORT]).trim().toInteger()
-                            
-                            def highCount = sh(script: '''
-                                grep -c '"issue_severity": "HIGH"' $BANDIT_REPORT || true
-                            ''', returnStdout: true, env: ['BANDIT_REPORT': BANDIT_REPORT]).trim().toInteger()
-                            
-                            echo "Resumen de Bandit:"
-                            echo "  - Vulnerabilidades CRÍTICAS: ${criticalCount}"
-                            echo "  - Vulnerabilidades ALTAS: ${highCount}"
-                            
-                            if (criticalCount > 0 || highCount > 0) {
-                                sh """
-                                    echo "VULNERABILIDADES ENCONTRADAS:"
-                                    echo "=== CRÍTICAS ==="
-                                    grep -A2 -B2 '"issue_severity": "CRITICAL"' ${BANDIT_REPORT} | head -20 || true
-                                    echo "=== ALTAS ==="
-                                    grep -A2 -B2 '"issue_severity": "HIGH"' ${BANDIT_REPORT} | head -20 || true
-                                """
-                                error("SECURITY GATE FALLIDO: Bandit encontró ${criticalCount} críticas y ${highCount} altas")
-                            } else {
-                                echo "Security Gate: No se encontraron vulnerabilidades críticas/altas"
-                            }
-                        }
-                    } else {
-                        echo "No se encontró reporte de Bandit"
-                    }
-                }
-            }
-        }
-
         stage('SCA - Dependency-Track') {
             agent {
                 docker {
@@ -184,6 +140,69 @@ pipeline {
                     script {
                         if (fileExists(BOM_FILE)) {
                             echo "Resultados de Dependency-Track disponibles para análisis"
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Security Gate - Dependency-Track') {
+            agent {
+                docker {
+                    image 'ci-python-security:latest'
+                    args '--network cicd-net'
+                    reuseNode true
+                }
+            }
+            steps {
+                script {
+                    sleep(time: 30, unit: 'SECONDS')
+                    
+                    withCredentials([string(credentialsId: 'dependency-track-api-key', variable: 'DTRACK_API_KEY')]) {
+                        // 1. Crear script shell seguro
+                        writeFile file: 'get_metrics.sh', text: '''#!/bin/bash
+                            # Obtener proyecto
+                            PROJECT_INFO=$(curl -s -X GET "$DTRACK_URL/api/v1/project/lookup?name=$PROJECT_NAME&version=$PROJECT_VERSION" \
+                                -H "X-Api-Key: $DTRACK_API_KEY")
+                            
+                            # Extraer UUID
+                            PROJECT_UUID=$(echo "$PROJECT_INFO" | jq -r '.uuid')
+                            
+                            # Obtener métricas
+                            METRICS=$(curl -s -X GET "$DTRACK_URL/api/v1/metrics/project/$PROJECT_UUID/current" \
+                                -H "X-Api-Key: $DTRACK_API_KEY")
+                            
+                            # Extraer valores
+                            CRITICAL=$(echo "$METRICS" | jq '.critical // 0')
+                            HIGH=$(echo "$METRICS" | jq '.high // 0')
+                            
+                            echo "CRITICAL=$CRITICAL"
+                            echo "HIGH=$HIGH"
+                        '''
+                        
+                        sh 'chmod +x get_metrics.sh && ./get_metrics.sh > metrics_output.txt'
+                        
+                        // 2. Leer resultados
+                        def output = readFile('metrics_output.txt').trim()
+                        def critical = 0
+                        def high = 0
+                        
+                        output.eachLine { line ->
+                            if (line.startsWith('CRITICAL=')) {
+                                critical = line.replace('CRITICAL=', '').toInteger()
+                            } else if (line.startsWith('HIGH=')) {
+                                high = line.replace('HIGH=', '').toInteger()
+                            }
+                        }
+                        
+                        echo "Métricas Dependency-Track:"
+                        echo "  - Críticas: ${critical}"
+                        echo "  - Altas: ${high}"
+                        
+                        if (critical > 0 || high > 0) {
+                            error("SECURITY GATE FALLIDO: Dependency-Track reportó ${critical} críticas y ${high} altas")
+                        } else {
+                            echo "Security Gate: No hay vulnerabilidades críticas/altas en dependencias"
                         }
                     }
                 }
