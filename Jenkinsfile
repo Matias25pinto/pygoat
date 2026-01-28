@@ -3,8 +3,6 @@ pipeline {
 
     environment {
 
-        HOME = "${WORKSPACE}"
-
         // Defect Dojo
         DD_URL = 'http://django-defectdojo-nginx-1:8080'
         DD_API_KEY = credentials('defectdojo-api-key')
