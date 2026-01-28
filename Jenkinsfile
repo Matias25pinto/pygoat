@@ -54,13 +54,13 @@ pipeline {
                     unstash 'pygoat-code'
                     
                     // Eliminar archivo anterior si existe
-                    sh 'rm -f $BANDIT_REPORT || true'
+                    sh "rm -f ${BANDIT_REPORT} || true"
                     
                     // Ejecutar Bandit capturando el exit code
                     def banditExitCode = sh(script: '''
                         cd pygoat
                         bandit -r . -f json -o ../$BANDIT_REPORT
-                    ''', returnStatus: true)
+                    ''', returnStatus: true, env: ['BANDIT_REPORT': BANDIT_REPORT])
                     
                     echo "Bandit exit code: ${banditExitCode}"
                     
@@ -76,9 +76,9 @@ pipeline {
                     }
                     
                     // Verificar que el archivo se creó
-                    sh 'test -f $BANDIT_REPORT && echo "Archivo $BANDIT_REPORT creado" || echo "Archivo no existe, creando vacío..."'
-                    sh 'test -f $BANDIT_REPORT || echo "{}" > $BANDIT_REPORT'
-                    sh 'ls -la $BANDIT_REPORT'
+                    sh "test -f ${BANDIT_REPORT} && echo 'Archivo ${BANDIT_REPORT} creado' || echo 'Archivo no existe, creando vacío...'"
+                    sh "test -f ${BANDIT_REPORT} || echo '{}' > ${BANDIT_REPORT}"
+                    sh "ls -la ${BANDIT_REPORT}"
                 }
                 // Archivar resultados
                 archiveArtifacts artifacts: "${BANDIT_REPORT}", fingerprint: true, allowEmptyArchive: true
@@ -109,24 +109,24 @@ pipeline {
                         } else {
                             def criticalCount = sh(script: '''
                                 grep -c '"issue_severity": "CRITICAL"' $BANDIT_REPORT || true
-                            ''', returnStdout: true).trim().toInteger()
+                            ''', returnStdout: true, env: ['BANDIT_REPORT': BANDIT_REPORT]).trim().toInteger()
                             
                             def highCount = sh(script: '''
                                 grep -c '"issue_severity": "HIGH"' $BANDIT_REPORT || true
-                            ''', returnStdout: true).trim().toInteger()
+                            ''', returnStdout: true, env: ['BANDIT_REPORT': BANDIT_REPORT]).trim().toInteger()
                             
                             echo "Resumen de Bandit:"
                             echo "  - Vulnerabilidades CRÍTICAS: ${criticalCount}"
                             echo "  - Vulnerabilidades ALTAS: ${highCount}"
                             
                             if (criticalCount > 0 || highCount > 0) {
-                                sh '''
+                                sh """
                                     echo "VULNERABILIDADES ENCONTRADAS:"
                                     echo "=== CRÍTICAS ==="
-                                    grep -A2 -B2 '"issue_severity": "CRITICAL"' $BANDIT_REPORT | head -20 || true
+                                    grep -A2 -B2 '"issue_severity": "CRITICAL"' ${BANDIT_REPORT} | head -20 || true
                                     echo "=== ALTAS ==="
-                                    grep -A2 -B2 '"issue_severity": "HIGH"' $BANDIT_REPORT | head -20 || true
-                                '''
+                                    grep -A2 -B2 '"issue_severity": "HIGH"' ${BANDIT_REPORT} | head -20 || true
+                                """
                                 error("SECURITY GATE FALLIDO: Bandit encontró ${criticalCount} críticas y ${highCount} altas")
                             } else {
                                 echo "Security Gate: No se encontraron vulnerabilidades críticas/altas"
@@ -152,10 +152,10 @@ pipeline {
                     unstash 'pygoat-code'
 
                     // Generar SBOM desde requirements.txt
-                    sh '''
+                    sh """
                         cd pygoat
-                        cyclonedx-py requirements requirements.txt -o ../$BOM_FILE
-                    '''
+                        cyclonedx-py requirements requirements.txt -o ../${BOM_FILE}
+                    """
 
                     // Subir SBOM a Dependency-Track
                     def uploadExitCode = sh(script: '''
@@ -165,7 +165,7 @@ pipeline {
                         -F "projectVersion=$PROJECT_VERSION" \
                         -F "autoCreate=true" \
                         -F "bom=@$BOM_FILE"
-                    ''', returnStatus: true)
+                    ''', returnStatus: true, env: ['BOM_FILE': BOM_FILE])
                     
                     echo "Curl exit code: ${uploadExitCode}"
                     
@@ -278,7 +278,7 @@ pipeline {
                             --report-path $GITLEAKS_REPORT \
                             --no-git
                         ''',
-                        returnStatus: true
+                        returnStatus: true, env: ['GITLEAKS_REPORT': GITLEAKS_REPORT]
                     )
 
                     archiveArtifacts artifacts: "${GITLEAKS_REPORT}",
