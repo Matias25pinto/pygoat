@@ -242,28 +242,33 @@ pipeline {
                     sleep(time: 30, unit: 'SECONDS')
                     
                     withCredentials([string(credentialsId: 'dependency-track-api-key', variable: 'DTRACK_API_KEY')]) {
-                        // script shell
-                        writeFile file: 'get_metrics.sh', text: '''#!/bin/bash
-                            # Obtener proyecto
-                            PROJECT_INFO=$(curl -s -X GET "$DTRACK_URL/api/v1/project/lookup?name=$PROJECT_NAME&version=$PROJECT_VERSION" \
-                                -H "X-Api-Key: $DTRACK_API_KEY")
-                            
-                            # Extraer UUID
-                            PROJECT_UUID=$(echo "$PROJECT_INFO" | jq -r '.uuid')
-                            
-                            # Obtener métricas
-                            METRICS=$(curl -s -X GET "$DTRACK_URL/api/v1/metrics/project/$PROJECT_UUID/current" \
-                                -H "X-Api-Key: $DTRACK_API_KEY")
-                            
-                            # Extraer valores
-                            CRITICAL=$(echo "$METRICS" | jq '.critical // 0')
-                            HIGH=$(echo "$METRICS" | jq '.high // 0')
-                            
-                            echo "CRITICAL=$CRITICAL"
-                            echo "HIGH=$HIGH"
-                        '''
-                        
-                        sh 'chmod +x get_metrics.sh && ./get_metrics.sh > metrics_output.txt'
+                            writeFile file: 'get_metrics_and_fpf.sh', text: '''#!/bin/bash
+                                # Obtener proyecto
+                                PROJECT_INFO=$(curl -s -X GET "$DTRACK_URL/api/v1/project/lookup?name=$PROJECT_NAME&version=$PROJECT_VERSION" \
+                                    -H "X-Api-Key: $DTRACK_API_KEY")
+                                
+                                # Extraer UUID
+                                PROJECT_UUID=$(echo "$PROJECT_INFO" | jq -r '.uuid')
+                                
+                                # Obtener métricas
+                                METRICS=$(curl -s -X GET "$DTRACK_URL/api/v1/metrics/project/$PROJECT_UUID/current" \
+                                    -H "X-Api-Key: $DTRACK_API_KEY")
+                                
+                                CRITICAL=$(echo "$METRICS" | jq '.critical // 0')
+                                HIGH=$(echo "$METRICS" | jq '.high // 0')
+                                
+                                echo "CRITICAL=$CRITICAL"
+                                echo "HIGH=$HIGH"
+
+                                # Descargar FPF
+                                curl -s -X GET "$DTRACK_URL/api/v1/project/$PROJECT_UUID/fpf" \
+                                    -H "X-Api-Key: $DTRACK_API_KEY" \
+                                    -o dependency-track-report.fpf
+                            '''
+
+                            sh 'chmod +x get_metrics_and_fpf.sh && ./get_metrics_and_fpf.sh > metrics_output.txt'
+                        }
+
                         
                         //Leer resultados
                         def output = readFile('metrics_output.txt').trim()
