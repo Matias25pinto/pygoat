@@ -36,7 +36,7 @@ pipeline {
                 '''
                 // Preparar Workspace
                 sh 'chown -R 1001:1001 $WORKSPACE'
-                
+
                 // Stash para compartir el código entre stages con diferentes agentes
                 stash name: 'pygoat-code', includes: 'pygoat/**'
             }
@@ -46,6 +46,7 @@ pipeline {
             agent {
                     docker {
                     image 'ci-python-security:latest'
+                    args '-u ciuser --network cicd-net'
                     reuseNode true
                 }
             }
@@ -101,7 +102,7 @@ pipeline {
             agent {
                 docker {
                     image 'ci-python-security:latest'
-                    args '--network cicd-net'
+                    args '-u ciuser --network cicd-net'
                     reuseNode true
                 }
             }
@@ -152,7 +153,7 @@ pipeline {
             agent {
                 docker {
                     image 'ci-python-security:latest'
-                    args '--network cicd-net'
+                    args '-u ciuser --network cicd-net'
                     reuseNode true
                 }
             }
