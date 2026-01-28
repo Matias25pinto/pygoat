@@ -98,255 +98,255 @@ pipeline {
         }
 
 
-        stage('SCA - Dependency-Track') {
-            agent {
-                docker {
-                    image 'ci-python-security:latest'
-                    args '--network cicd-net'
-                    reuseNode true
-                }
-            }
-            steps {
-                script {
-                    unstash 'pygoat-code'
+stage('SCA - Dependency-Track') {
+    agent {
+        docker {
+            image 'ci-python-security:latest'
+            args '--network cicd-net'
+            reuseNode true
+        }
+    }
+    steps {
+        script {
+            unstash 'pygoat-code'
 
-                    // 1️⃣ Generar SBOM usando cyclonedx-py correctamente
-                    sh '''
-                        cd pygoat
-                        echo "Generando SBOM para requirements.txt..."
-                        
-                        # Verificar la versión y opciones de cyclonedx-py
-                        echo "=== Información de cyclonedx-py ==="
-                        cyclonedx-py --help 2>&1 | head -20 || true
-                        
-                        # Intentar diferentes formatos de comando
-                        echo "=== Intentando generar BOM ==="
-                        
-                        # Opción 1: Formato antiguo (--requirements)
-                        if cyclonedx-py --help 2>&1 | grep -q "requirements"; then
-                            echo "Usando formato: cyclonedx-py --requirements"
-                            cyclonedx-py --requirements requirements.txt --output ../$BOM_FILE
-                        # Opción 2: Formato nuevo (requirements como subcomando)
-                        elif cyclonedx-py requirements --help 2>&1 | grep -q "requirements"; then
-                            echo "Usando formato: cyclonedx-py requirements"
-                            cyclonedx-py requirements requirements.txt -o ../$BOM_FILE
-                        # Opción 3: Intentar con pip directamente
-                        else
-                            echo "Formato no reconocido, usando pip para generar BOM..."
-                            pip list --format=json > ../pip_list.json
-                            
-                            # Crear un BOM básico manualmente
-                            echo '{
-                            "bomFormat": "CycloneDX",
-                            "specVersion": "1.4",
-                            "version": 1,
-                            "metadata": {
-                                "tools": [
-                                {
-                                    "vendor": "Jenkins",
-                                    "name": "Pipeline"
-                                }
-                                ]
-                            },
-                            "components": []
-                            }' > ../$BOM_FILE
-                            
-                            # Extraer paquetes de pip list y agregarlos al BOM
-                            python3 -c "
-        import json
-        import subprocess
-
-        # Leer lista de paquetes instalados
-        with open('../pip_list.json', 'r') as f:
-            packages = json.load(f)
-
-        # Leer requirements.txt
-        with open('requirements.txt', 'r') as f:
-            requirements = [line.strip() for line in f if line.strip() and not line.startswith('#')]
-
-        # Leer BOM base
-        with open('../$BOM_FILE', 'r') as f:
-            bom = json.load(f)
-
-        # Crear componentes
-        components = []
-        for req in requirements:
-            # Parsear nombre y versión (formato simple)
-            parts = req.split('==')
-            if len(parts) == 2:
-                name, version = parts
-                components.append({
-                    'type': 'library',
-                    'name': name,
-                    'version': version,
-                    'purl': f'pkg:pypi/{name}@{version}'
-                })
-
-        bom['components'] = components
-
-        # Guardar BOM actualizado
-        with open('../$BOM_FILE', 'w') as f:
-            json.dump(bom, f, indent=2)
-                            "
-                        fi
-                        
-                        echo "=== BOM generado ==="
-                        ls -la ../$BOM_FILE
-                        echo "Primeras líneas del BOM:"
-                        head -5 ../$BOM_FILE
-                        
-                        # Verificar que el BOM es JSON válido
-                        if python3 -c "import json; json.load(open('../$BOM_FILE', 'r'))" 2>/dev/null; then
-                            echo "✅ BOM es JSON válido"
-                        else
-                            echo "⚠ BOM no es JSON válido, creando BOM básico..."
-                            echo '{"bomFormat":"CycloneDX","specVersion":"1.4","version":1,"components":[]}' > ../$BOM_FILE
-                        fi
-                    '''
-
-                    // 2️⃣ Subir SBOM a Dependency-Track (simplificado)
-                    sh '''
-                        echo "=== Subiendo BOM a Dependency-Track ==="
-                        echo "URL: $DTRACK_URL/api/v1/bom"
-                        
-                        # Subir el BOM sin esperar respuesta compleja
-                        set +e  # No salir en error
-                        
-                        curl -v -X POST "$DTRACK_URL/api/v1/bom" \
-                            -H "X-Api-Key: $DTRACK_API_KEY" \
-                            -F "projectName=$PROJECT_NAME" \
-                            -F "projectVersion=$PROJECT_VERSION" \
-                            -F "autoCreate=true" \
-                            -F "bom=@$BOM_FILE" 2>&1 | grep -E "(HTTP|< HTTP|{\"token\")" || true
-                        
-                        set -e
-                        
-                        echo "✅ BOM enviado (o al menos intentado)"
-                        
-                        # Dar tiempo a que se procese
-                        sleep 5
-                    '''
-
-                    // 3️⃣ Obtener información del proyecto (intento simple)
-                    sh '''
-                        echo "=== Verificando estado del proyecto ==="
-                        
-                        # Intentar obtener el proyecto
-                        PROJECTS_JSON=$(curl -s -H "X-Api-Key: $DTRACK_API_KEY" "$DTRACK_URL/api/v1/project" 2>/dev/null || echo "[]")
-                        
-                        echo "Proyectos en Dependency-Track:"
-                        echo "$PROJECTS_JSON" | jq -r '.[] | "  - \(.name): \(.lastBomImport)"' 2>/dev/null || echo "  No se pudieron listar proyectos"
-                        
-                        # Buscar nuestro proyecto
-                        PROJECT_UUID=$(echo "$PROJECTS_JSON" | jq -r --arg name "$PROJECT_NAME" '.[] | select(.name == $name) | .uuid' 2>/dev/null || echo "")
-                        
-                        if [ -n "$PROJECT_UUID" ] && [ "$PROJECT_UUID" != "null" ]; then
-                            echo "✅ Proyecto encontrado: $PROJECT_UUID"
-                            echo "PROJECT_UUID=$PROJECT_UUID" > project_info.txt
-                            
-                            # Intentar obtener versión específica
-                            PROJECT_INFO=$(curl -s -H "X-Api-Key: $DTRACK_API_KEY" "$DTRACK_URL/api/v1/project/$PROJECT_UUID" 2>/dev/null || echo "{}")
-                            echo "Información del proyecto:"
-                            echo "$PROJECT_INFO" | jq '.' 2>/dev/null || echo "No se pudo obtener información detallada"
-                        else
-                            echo "⚠ Proyecto '$PROJECT_NAME' no encontrado"
-                            echo "PROJECT_UUID=not-found" > project_info.txt
-                        fi
-                    '''
-
-                    // 4️⃣ Leer información del proyecto desde archivo
-                    script {
-                        if (fileExists('project_info.txt')) {
-                            def projectInfo = readFile('project_info.txt').trim()
-                            if (projectInfo.contains('PROJECT_UUID=')) {
-                                env.PROJECT_UUID = projectInfo.split('=')[1]
-                            }
-                        }
-                        
-                        echo "PROJECT_UUID configurado: ${env.PROJECT_UUID ?: 'no configurado'}"
-                        
-                        // Si no se encontró proyecto, usar un valor por defecto
-                        if (!env.PROJECT_UUID || env.PROJECT_UUID == "not-found") {
-                            env.PROJECT_UUID = "manual-${PROJECT_NAME}-${PROJECT_VERSION}"
-                        }
-                    }
-
-                    // 5️⃣ Exportar FPF (con fallback robusto)
-                    sh '''
-                        echo "=== Generando FPF ==="
-                        
-                        # Si tenemos un UUID válido de Dependency-Track, intentar obtener findings
-                        if [[ "$PROJECT_UUID" != "not-found" ]] && [[ ! "$PROJECT_UUID" =~ ^manual- ]]; then
-                            echo "Intentando obtener findings de Dependency-Track..."
-                            
-                            # Intentar varias veces
-                            for i in {1..5}; do
-                                echo "Intento $i de obtener findings..."
-                                
-                                if curl -s -H "X-Api-Key: $DTRACK_API_KEY" \
-                                    "$DTRACK_URL/api/v1/finding/project/$PROJECT_UUID" \
-                                    -o /tmp/findings_raw.json 2>/dev/null && \
-                                    [ -s /tmp/findings_raw.json ] && \
-                                    grep -q "\[" /tmp/findings_raw.json; then
-                                    
-                                    echo "✅ Findings obtenidos"
-                                    
-                                    # Convertir a formato FPF
-                                    if command -v jq >/dev/null 2>&1; then
-                                        jq '{findings: .}' /tmp/findings_raw.json > $FPF_FILE 2>/dev/null
-                                    else
-                                        python3 -c "
-        import json
-        with open('/tmp/findings_raw.json', 'r') as f:
-            findings = json.load(f)
-        with open('$FPF_FILE', 'w') as f:
-            json.dump({'findings': findings}, f, indent=2)
-                                        "
-                                    fi
-                                    
-                                    break
-                                fi
-                                
-                                echo "Esperando 10 segundos..."
-                                sleep 10
-                            done
-                        fi
-                        
-                        # Verificar si se creó el FPF
-                        if [ ! -f "$FPF_FILE" ] || [ ! -s "$FPF_FILE" ]; then
-                            echo "Creando FPF vacío..."
-                            echo '{"findings": []}' > $FPF_FILE
-                        fi
-                        
-                        echo "=== FPF generado ==="
-                        ls -la $FPF_FILE
-                        echo "Tamaño: $(wc -c < $FPF_FILE) bytes"
-                    '''
-                }
-
-                // 6️⃣ Archivar resultados
-                stash name: 'bom-file', includes: "${BOM_FILE}"
-                archiveArtifacts artifacts: "${BOM_FILE}", fingerprint: true
-
-                stash name: 'dependency-track-fpf', includes: "${FPF_FILE}"
-                archiveArtifacts artifacts: "${FPF_FILE}", fingerprint: true
-            }
-            
-            post {
-                always {
-                    echo "📊 Resumen SCA:"
-                    echo "  BOM generado: ${fileExists("$BOM_FILE") ? 'Sí' : 'No'}"
-                    echo "  FPF generado: ${fileExists("$FPF_FILE") ? 'Sí' : 'No'}"
-                    echo "  PROJECT_UUID: ${env.PROJECT_UUID ?: 'N/A'}"
+            // 1️⃣ Generar SBOM usando cyclonedx-py correctamente
+            sh '''
+                cd pygoat
+                echo "Generando SBOM para requirements.txt..."
+                
+                # Verificar la versión y opciones de cyclonedx-py
+                echo "=== Información de cyclonedx-py ==="
+                cyclonedx-py --help 2>&1 | head -20 || true
+                
+                # Intentar diferentes formatos de comando
+                echo "=== Intentando generar BOM ==="
+                
+                # Opción 1: Formato antiguo (--requirements)
+                if cyclonedx-py --help 2>&1 | grep -q "requirements"; then
+                    echo "Usando formato: cyclonedx-py --requirements"
+                    cyclonedx-py --requirements requirements.txt --output ../$BOM_FILE
+                # Opción 2: Formato nuevo (requirements como subcomando)
+                elif cyclonedx-py requirements --help 2>&1 | grep -q "requirements"; then
+                    echo "Usando formato: cyclonedx-py requirements"
+                    cyclonedx-py requirements requirements.txt -o ../$BOM_FILE
+                # Opción 3: Intentar con pip directamente
+                else
+                    echo "Formato no reconocido, usando pip para generar BOM..."
+                    pip list --format=json > ../pip_list.json
                     
-                    // Limpiar archivos temporales
-                    sh '''
-                        rm -f project_info.txt /tmp/findings_raw.json 2>/dev/null || true
-                    '''
+                    # Crear un BOM básico manualmente
+                    echo '{
+                      "bomFormat": "CycloneDX",
+                      "specVersion": "1.4",
+                      "version": 1,
+                      "metadata": {
+                        "tools": [
+                          {
+                            "vendor": "Jenkins",
+                            "name": "Pipeline"
+                          }
+                        ]
+                      },
+                      "components": []
+                    }' > ../$BOM_FILE
+                    
+                    # Extraer paquetes de pip list y agregarlos al BOM
+                    python3 -c "
+import json
+import subprocess
+
+# Leer lista de paquetes instalados
+with open('../pip_list.json', 'r') as f:
+    packages = json.load(f)
+
+# Leer requirements.txt
+with open('requirements.txt', 'r') as f:
+    requirements = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+
+# Leer BOM base
+with open('../$BOM_FILE', 'r') as f:
+    bom = json.load(f)
+
+# Crear componentes
+components = []
+for req in requirements:
+    # Parsear nombre y versión (formato simple)
+    parts = req.split('==')
+    if len(parts) == 2:
+        name, version = parts
+        components.append({
+            'type': 'library',
+            'name': name,
+            'version': version,
+            'purl': f'pkg:pypi/{name}@{version}'
+        })
+
+bom['components'] = components
+
+# Guardar BOM actualizado
+with open('../$BOM_FILE', 'w') as f:
+    json.dump(bom, f, indent=2)
+                    "
+                fi
+                
+                echo "=== BOM generado ==="
+                ls -la ../$BOM_FILE
+                echo "Primeras líneas del BOM:"
+                head -5 ../$BOM_FILE
+                
+                # Verificar que el BOM es JSON válido
+                if python3 -c "import json; json.load(open('../$BOM_FILE', 'r'))" 2>/dev/null; then
+                    echo "✅ BOM es JSON válido"
+                else
+                    echo "⚠ BOM no es JSON válido, creando BOM básico..."
+                    echo '{"bomFormat":"CycloneDX","specVersion":"1.4","version":1,"components":[]}' > ../$BOM_FILE
+                fi
+            '''
+
+            // 2️⃣ Subir SBOM a Dependency-Track (simplificado)
+            sh '''
+                echo "=== Subiendo BOM a Dependency-Track ==="
+                echo "URL: $DTRACK_URL/api/v1/bom"
+                
+                # Subir el BOM sin esperar respuesta compleja
+                set +e  # No salir en error
+                
+                curl -v -X POST "$DTRACK_URL/api/v1/bom" \
+                    -H "X-Api-Key: $DTRACK_API_KEY" \
+                    -F "projectName=$PROJECT_NAME" \
+                    -F "projectVersion=$PROJECT_VERSION" \
+                    -F "autoCreate=true" \
+                    -F "bom=@$BOM_FILE" 2>&1 | grep -E "(HTTP|< HTTP|{\"token\")" || true
+                
+                set -e
+                
+                echo "✅ BOM enviado (o al menos intentado)"
+                
+                # Dar tiempo a que se procese
+                sleep 5
+            '''
+
+            // 3️⃣ Obtener información del proyecto (intento simple)
+            sh '''
+                echo "=== Verificando estado del proyecto ==="
+                
+                # Intentar obtener el proyecto
+                PROJECTS_JSON=$(curl -s -H "X-Api-Key: $DTRACK_API_KEY" "$DTRACK_URL/api/v1/project" 2>/dev/null || echo "[]")
+                
+                echo "Proyectos en Dependency-Track:"
+                echo "$PROJECTS_JSON" | jq -r '.[] | "  - \(.name): \(.lastBomImport)"' 2>/dev/null || echo "  No se pudieron listar proyectos"
+                
+                # Buscar nuestro proyecto
+                PROJECT_UUID=$(echo "$PROJECTS_JSON" | jq -r --arg name "$PROJECT_NAME" '.[] | select(.name == $name) | .uuid' 2>/dev/null || echo "")
+                
+                if [ -n "$PROJECT_UUID" ] && [ "$PROJECT_UUID" != "null" ]; then
+                    echo "✅ Proyecto encontrado: $PROJECT_UUID"
+                    echo "PROJECT_UUID=$PROJECT_UUID" > project_info.txt
+                    
+                    # Intentar obtener versión específica
+                    PROJECT_INFO=$(curl -s -H "X-Api-Key: $DTRACK_API_KEY" "$DTRACK_URL/api/v1/project/$PROJECT_UUID" 2>/dev/null || echo "{}")
+                    echo "Información del proyecto:"
+                    echo "$PROJECT_INFO" | jq '.' 2>/dev/null || echo "No se pudo obtener información detallada"
+                else
+                    echo "⚠ Proyecto '$PROJECT_NAME' no encontrado"
+                    echo "PROJECT_UUID=not-found" > project_info.txt
+                fi
+            '''
+
+            // 4️⃣ Leer información del proyecto desde archivo
+            script {
+                if (fileExists('project_info.txt')) {
+                    def projectInfo = readFile('project_info.txt').trim()
+                    if (projectInfo.contains('PROJECT_UUID=')) {
+                        env.PROJECT_UUID = projectInfo.split('=')[1]
+                    }
+                }
+                
+                echo "PROJECT_UUID configurado: ${env.PROJECT_UUID ?: 'no configurado'}"
+                
+                // Si no se encontró proyecto, usar un valor por defecto
+                if (!env.PROJECT_UUID || env.PROJECT_UUID == "not-found") {
+                    env.PROJECT_UUID = "manual-${PROJECT_NAME}-${PROJECT_VERSION}"
                 }
             }
+
+            // 5️⃣ Exportar FPF (con fallback robusto)
+            sh '''
+                echo "=== Generando FPF ==="
+                
+                # Si tenemos un UUID válido de Dependency-Track, intentar obtener findings
+                if [[ "$PROJECT_UUID" != "not-found" ]] && [[ ! "$PROJECT_UUID" =~ ^manual- ]]; then
+                    echo "Intentando obtener findings de Dependency-Track..."
+                    
+                    # Intentar varias veces
+                    for i in {1..5}; do
+                        echo "Intento $i de obtener findings..."
+                        
+                        if curl -s -H "X-Api-Key: $DTRACK_API_KEY" \
+                            "$DTRACK_URL/api/v1/finding/project/$PROJECT_UUID" \
+                            -o /tmp/findings_raw.json 2>/dev/null && \
+                            [ -s /tmp/findings_raw.json ] && \
+                            grep -q "\[" /tmp/findings_raw.json; then
+                            
+                            echo "✅ Findings obtenidos"
+                            
+                            # Convertir a formato FPF
+                            if command -v jq >/dev/null 2>&1; then
+                                jq '{findings: .}' /tmp/findings_raw.json > $FPF_FILE 2>/dev/null
+                            else
+                                python3 -c "
+import json
+with open('/tmp/findings_raw.json', 'r') as f:
+    findings = json.load(f)
+with open('$FPF_FILE', 'w') as f:
+    json.dump({'findings': findings}, f, indent=2)
+                                "
+                            fi
+                            
+                            break
+                        fi
+                        
+                        echo "Esperando 10 segundos..."
+                        sleep 10
+                    done
+                fi
+                
+                # Verificar si se creó el FPF
+                if [ ! -f "$FPF_FILE" ] || [ ! -s "$FPF_FILE" ]; then
+                    echo "Creando FPF vacío..."
+                    echo '{"findings": []}' > $FPF_FILE
+                fi
+                
+                echo "=== FPF generado ==="
+                ls -la $FPF_FILE
+                echo "Tamaño: $(wc -c < $FPF_FILE) bytes"
+            '''
         }
 
+        // 6️⃣ Archivar resultados
+        stash name: 'bom-file', includes: "${BOM_FILE}"
+        archiveArtifacts artifacts: "${BOM_FILE}", fingerprint: true
+
+        stash name: 'dependency-track-fpf', includes: "${FPF_FILE}"
+        archiveArtifacts artifacts: "${FPF_FILE}", fingerprint: true
+    }
+    
+    post {
+        always {
+            echo "📊 Resumen SCA:"
+            echo "  BOM generado: ${fileExists("$BOM_FILE") ? 'Sí' : 'No'}"
+            echo "  FPF generado: ${fileExists("$FPF_FILE") ? 'Sí' : 'No'}"
+            echo "  PROJECT_UUID: ${env.PROJECT_UUID ?: 'N/A'}"
+            
+            // Limpiar archivos temporales
+            sh '''
+                rm -f project_info.txt /tmp/findings_raw.json 2>/dev/null || true
+            '''
+        }
+    }
+}
+        
         stage('Secrets Scan - Gitleaks') {
             agent {
                 docker {
