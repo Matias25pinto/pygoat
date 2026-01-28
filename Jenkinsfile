@@ -43,7 +43,6 @@ pipeline {
             agent {
                     docker {
                     image 'ci-python-security:latest'
-                    args '-u ciuser --network cicd-net'
                     reuseNode true
                 }
             }
