@@ -145,6 +145,47 @@ pipeline {
             }
         }
 
+        stage('Secrets Scan - Gitleaks') {
+            agent {
+                docker {
+                    image 'zricethezav/gitleaks:latest'
+                    args '--entrypoint=""'
+                    reuseNode true
+                }
+            }
+
+            options {
+                skipDefaultCheckout(true)
+            }
+
+            steps {
+                script {
+                    unstash 'pygoat-code'
+
+                    def exitCode = sh(
+                        script: '''
+                            gitleaks detect \
+                            --source=pygoat \
+                            --report-format json \
+                            --report-path $GITLEAKS_REPORT \
+                            --no-git
+                        ''',
+                        returnStatus: true, env: ['GITLEAKS_REPORT': GITLEAKS_REPORT]
+                    )
+
+                    archiveArtifacts artifacts: "${GITLEAKS_REPORT}",
+                                    fingerprint: true,
+                                    allowEmptyArchive: true
+
+                    if (exitCode != 0) {
+                        unstable("Gitleaks detectó secretos")
+                    } else {
+                        echo "No se detectaron secretos"
+                    }
+                }
+            }
+        }
+
         stage('Security Gate - Bandit') {
             agent any
             steps {
@@ -254,46 +295,6 @@ pipeline {
             }
         }
 
-        stage('Secrets Scan - Gitleaks') {
-            agent {
-                docker {
-                    image 'zricethezav/gitleaks:latest'
-                    args '--entrypoint=""'
-                    reuseNode true
-                }
-            }
-
-            options {
-                skipDefaultCheckout(true)
-            }
-
-            steps {
-                script {
-                    unstash 'pygoat-code'
-
-                    def exitCode = sh(
-                        script: '''
-                            gitleaks detect \
-                            --source=pygoat \
-                            --report-format json \
-                            --report-path $GITLEAKS_REPORT \
-                            --no-git
-                        ''',
-                        returnStatus: true, env: ['GITLEAKS_REPORT': GITLEAKS_REPORT]
-                    )
-
-                    archiveArtifacts artifacts: "${GITLEAKS_REPORT}",
-                                    fingerprint: true,
-                                    allowEmptyArchive: true
-
-                    if (exitCode != 0) {
-                        unstable("Gitleaks detectó secretos")
-                    } else {
-                        echo "No se detectaron secretos"
-                    }
-                }
-            }
-        }
     }
 
     post {
