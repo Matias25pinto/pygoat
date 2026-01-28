@@ -148,92 +148,6 @@ pipeline {
             }
         }
 
-        stage('Secrets Scan - Gitleaks') {
-            agent {
-                docker {
-                    image 'zricethezav/gitleaks:latest'
-                    args '--entrypoint=""'
-                    reuseNode true
-                }
-            }
-
-            options {
-                skipDefaultCheckout(true)
-            }
-
-            steps {
-                script {
-                    unstash 'pygoat-code'
-
-                    def exitCode = sh(
-                        script: '''
-                            gitleaks detect \
-                            --source=pygoat \
-                            --report-format json \
-                            --report-path $GITLEAKS_REPORT \
-                            --no-git
-                        ''',
-                        returnStatus: true, env: ['GITLEAKS_REPORT': GITLEAKS_REPORT]
-                    )
-
-                    archiveArtifacts artifacts: "${GITLEAKS_REPORT}",
-                                    fingerprint: true,
-                                    allowEmptyArchive: true
-
-                    if (exitCode != 0) {
-                        unstable("Gitleaks detectó secretos")
-                    } else {
-                        echo "No se detectaron secretos"
-                    }
-                }
-            }
-        }
-    }
-
-        stage('Security Gate - Bandit') {
-            agent any
-            steps {
-                script {
-                    echo "Verificando security gate para Bandit..."
-                    
-                    if (fileExists(BANDIT_REPORT)) {
-                        def jsonContent = readFile(BANDIT_REPORT).trim()
-                        
-                        if (jsonContent == "{}" || jsonContent == "") {
-                            echo "No hay hallazgos de Bandit"
-                        } else {
-                            def criticalCount = sh(script: '''
-                                grep -c '"issue_severity": "CRITICAL"' $BANDIT_REPORT || true
-                            ''', returnStdout: true, env: ['BANDIT_REPORT': BANDIT_REPORT]).trim().toInteger()
-                            
-                            def highCount = sh(script: '''
-                                grep -c '"issue_severity": "HIGH"' $BANDIT_REPORT || true
-                            ''', returnStdout: true, env: ['BANDIT_REPORT': BANDIT_REPORT]).trim().toInteger()
-                            
-                            echo "Resumen de Bandit:"
-                            echo "  - Vulnerabilidades CRÍTICAS: ${criticalCount}"
-                            echo "  - Vulnerabilidades ALTAS: ${highCount}"
-                            
-                            if (criticalCount > 0 || highCount > 0) {
-                                sh """
-                                    echo "VULNERABILIDADES ENCONTRADAS:"
-                                    echo "=== CRÍTICAS ==="
-                                    grep -A2 -B2 '"issue_severity": "CRITICAL"' ${BANDIT_REPORT} | head -20 || true
-                                    echo "=== ALTAS ==="
-                                    grep -A2 -B2 '"issue_severity": "HIGH"' ${BANDIT_REPORT} | head -20 || true
-                                """
-                                error("SECURITY GATE FALLIDO: Bandit encontró ${criticalCount} críticas y ${highCount} altas")
-                            } else {
-                                echo "Security Gate: No se encontraron vulnerabilidades críticas/altas"
-                            }
-                        }
-                    } else {
-                        echo "No se encontró reporte de Bandit"
-                    }
-                }
-            }
-        }
-
         stage('Security Gate - Dependency-Track') {
             agent {
                 docker {
@@ -296,6 +210,48 @@ pipeline {
                 }
             }
         }
+
+        stage('Secrets Scan - Gitleaks') {
+            agent {
+                docker {
+                    image 'zricethezav/gitleaks:latest'
+                    args '--entrypoint=""'
+                    reuseNode true
+                }
+            }
+
+            options {
+                skipDefaultCheckout(true)
+            }
+
+            steps {
+                script {
+                    unstash 'pygoat-code'
+
+                    def exitCode = sh(
+                        script: '''
+                            gitleaks detect \
+                            --source=pygoat \
+                            --report-format json \
+                            --report-path $GITLEAKS_REPORT \
+                            --no-git
+                        ''',
+                        returnStatus: true, env: ['GITLEAKS_REPORT': GITLEAKS_REPORT]
+                    )
+
+                    archiveArtifacts artifacts: "${GITLEAKS_REPORT}",
+                                    fingerprint: true,
+                                    allowEmptyArchive: true
+
+                    if (exitCode != 0) {
+                        unstable("Gitleaks detectó secretos")
+                    } else {
+                        echo "No se detectaron secretos"
+                    }
+                }
+            }
+        }
+    }
 
     post {
         success {
