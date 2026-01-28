@@ -63,10 +63,7 @@ pipeline {
                     
                     echo "Bandit exit code: ${banditExitCode}"
                     
-                    // Bandit retorna:
-                    // 0 = No issues found
-                    // 1 = Issues found
-                    // 2 = Error
+                    //capturar si encontro vulnerabilidades retorna 1
                     if (banditExitCode == 1) {
                         unstable(message: "Bandit encontró vulnerabilidades de seguridad")
                         echo "Bandit encontró vulnerabilidades"
@@ -245,7 +242,7 @@ pipeline {
                     sleep(time: 30, unit: 'SECONDS')
                     
                     withCredentials([string(credentialsId: 'dependency-track-api-key', variable: 'DTRACK_API_KEY')]) {
-                        // 1. Crear script shell seguro
+                        // script shell
                         writeFile file: 'get_metrics.sh', text: '''#!/bin/bash
                             # Obtener proyecto
                             PROJECT_INFO=$(curl -s -X GET "$DTRACK_URL/api/v1/project/lookup?name=$PROJECT_NAME&version=$PROJECT_VERSION" \
@@ -268,7 +265,7 @@ pipeline {
                         
                         sh 'chmod +x get_metrics.sh && ./get_metrics.sh > metrics_output.txt'
                         
-                        // 2. Leer resultados
+                        //Leer resultados
                         def output = readFile('metrics_output.txt').trim()
                         def critical = 0
                         def high = 0
