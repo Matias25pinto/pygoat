@@ -193,10 +193,6 @@ pipeline {
             }
             steps {
                 script {
-                    unstash "${BANDIT_REPORT}"
-                    unstash "${GITLEAKS_REPORT}"
-
-                    sh 'ls -la'
 
                     echo "Subiendo Bandit..."
                     sh """
