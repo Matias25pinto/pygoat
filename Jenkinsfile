@@ -43,9 +43,10 @@ pipeline {
 
         stage('SAST - Bandit') {
             agent {
-                docker {
-                image 'ci-python-security:latest'
-                reuseNode true
+                    docker {
+                    image 'ci-python-security:latest'
+                    reuseNode true
+                }
             }
             steps {
                 script {
@@ -141,8 +142,10 @@ pipeline {
         stage('SCA - Dependency-Track') {
             agent {
                 docker {
-                image 'ci-python-security:latest'
-                reuseNode true
+                    image 'ci-python-security:latest'
+                    args '--network cicd-net'
+                    reuseNode true
+                }
             }
             steps {
                 script {
