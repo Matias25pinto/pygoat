@@ -131,7 +131,7 @@ pipeline {
                         PROJECT_UUID=$(curl -s -X GET "$DTRACK_URL/api/v1/project?name=$PROJECT_NAME" -H "X-Api-Key: $DTRACK_API_KEY" | jq -r '.[0].uuid')
                         VERSION_UUID=$(curl -s -X GET "$DTRACK_URL/api/v1/project/$PROJECT_UUID/version?version=$PROJECT_VERSION" -H "X-Api-Key: $DTRACK_API_KEY" | jq -r '.[0].uuid')
                         curl -s -X GET "$DTRACK_URL/api/v1/finding/project/$PROJECT_UUID/version/$VERSION_UUID/fpf" \
-                        -H "X-Api-Key: $DTRACK_API_KEY" -o dependency-track.fpf.json
+                        -H "X-Api-Key: $DTRACK_API_KEY" -o $FPF_FILE
                     '''
                 }
 
