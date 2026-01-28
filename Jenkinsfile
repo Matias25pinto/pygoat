@@ -290,6 +290,10 @@ pipeline {
                         } else {
                             echo "Security Gate: No hay vulnerabilidades críticas/altas en dependencias"
                         }
+
+                        //Guardar reporte fpf
+                        stash name: 'dtrack-fpf', includes: 'dependency-track-report.fpf'
+                        archiveArtifacts artifacts: 'dependency-track-report.fpf', fingerprint: true
                     }
                 }
             }
