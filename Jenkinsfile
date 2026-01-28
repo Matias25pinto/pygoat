@@ -267,8 +267,6 @@ pipeline {
                             '''
 
                             sh 'chmod +x get_metrics_and_fpf.sh && ./get_metrics_and_fpf.sh > metrics_output.txt'
-                        }
-
                         
                         //Leer resultados
                         def output = readFile('metrics_output.txt').trim()
