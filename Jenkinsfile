@@ -193,8 +193,22 @@ pipeline {
             }
             steps {
                 script {
-
+                    
                     echo "Subiendo Bandit..."
+                    sh(
+                        script: '''
+                            curl -X POST "${DD_URL}/api/v2/import-scan/" \
+                            -H "Authorization: Token DD_API_KEY" \
+                            -F "engagement=${DD_ENGAGEMENT_ID}" \
+                            -F "scan_type=Bandit Scan" \
+                            -F "file=@$BANDIT_REPORT" \
+                            -F "active=true" \
+                            -F "verified=false"
+                        ''',
+                        returnStatus: true, env: ['BANDIT_REPORT': BANDIT_REPORT, 'DD_API_KEY': DD_API_KEY]
+                    )
+
+                    
                     sh """
                     curl -X POST "${DD_URL}/api/v2/import-scan/" \
                     -H "Authorization: Token ${DD_API_KEY}" \
