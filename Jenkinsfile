@@ -34,6 +34,9 @@ pipeline {
                     cd pygoat
                     git checkout ejercicio-2
                 '''
+                // Preparar Workspace
+                sh 'chown -R 1001:1001 $WORKSPACE'
+                
                 // Stash para compartir el código entre stages con diferentes agentes
                 stash name: 'pygoat-code', includes: 'pygoat/**'
             }
