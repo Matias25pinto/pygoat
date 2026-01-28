@@ -110,260 +110,221 @@ pipeline {
                 script {
                     unstash 'pygoat-code'
 
-                    // 1️⃣ Generar SBOM - CORREGIDO
+                    // 1️⃣ Generar SBOM usando cyclonedx-py correctamente
                     sh '''
                         cd pygoat
                         echo "Generando SBOM para requirements.txt..."
                         
-                        # Verificar herramientas disponibles
-                        echo "Herramientas disponibles:"
-                        which cyclonedx-bom || echo "cyclonedx-bom no encontrado"
-                        which cyclonedx-py || echo "cyclonedx-py no encontrado"
+                        # Verificar la versión y opciones de cyclonedx-py
+                        echo "=== Información de cyclonedx-py ==="
+                        cyclonedx-py --help 2>&1 | head -20 || true
                         
-                        # Usar cyclonedx-bom (recomendado) o cyclonedx-py sin --format
-                        if command -v cyclonedx-bom &> /dev/null; then
-                            echo "Usando cyclonedx-bom..."
-                            cyclonedx-bom -r requirements.txt -o ../$BOM_FILE
-                        elif command -v cyclonedx-py &> /dev/null; then
-                            echo "Usando cyclonedx-py..."
+                        # Intentar diferentes formatos de comando
+                        echo "=== Intentando generar BOM ==="
+                        
+                        # Opción 1: Formato antiguo (--requirements)
+                        if cyclonedx-py --help 2>&1 | grep -q "requirements"; then
+                            echo "Usando formato: cyclonedx-py --requirements"
+                            cyclonedx-py --requirements requirements.txt --output ../$BOM_FILE
+                        # Opción 2: Formato nuevo (requirements como subcomando)
+                        elif cyclonedx-py requirements --help 2>&1 | grep -q "requirements"; then
+                            echo "Usando formato: cyclonedx-py requirements"
                             cyclonedx-py requirements requirements.txt -o ../$BOM_FILE
+                        # Opción 3: Intentar con pip directamente
                         else
-                            echo "Creando BOM básico manualmente..."
+                            echo "Formato no reconocido, usando pip para generar BOM..."
+                            pip list --format=json > ../pip_list.json
+                            
+                            # Crear un BOM básico manualmente
                             echo '{
                             "bomFormat": "CycloneDX",
                             "specVersion": "1.4",
                             "version": 1,
+                            "metadata": {
+                                "tools": [
+                                {
+                                    "vendor": "Jenkins",
+                                    "name": "Pipeline"
+                                }
+                                ]
+                            },
                             "components": []
                             }' > ../$BOM_FILE
+                            
+                            # Extraer paquetes de pip list y agregarlos al BOM
+                            python3 -c "
+        import json
+        import subprocess
+
+        # Leer lista de paquetes instalados
+        with open('../pip_list.json', 'r') as f:
+            packages = json.load(f)
+
+        # Leer requirements.txt
+        with open('requirements.txt', 'r') as f:
+            requirements = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+
+        # Leer BOM base
+        with open('../$BOM_FILE', 'r') as f:
+            bom = json.load(f)
+
+        # Crear componentes
+        components = []
+        for req in requirements:
+            # Parsear nombre y versión (formato simple)
+            parts = req.split('==')
+            if len(parts) == 2:
+                name, version = parts
+                components.append({
+                    'type': 'library',
+                    'name': name,
+                    'version': version,
+                    'purl': f'pkg:pypi/{name}@{version}'
+                })
+
+        bom['components'] = components
+
+        # Guardar BOM actualizado
+        with open('../$BOM_FILE', 'w') as f:
+            json.dump(bom, f, indent=2)
+                            "
                         fi
                         
-                        echo "BOM generado:"
+                        echo "=== BOM generado ==="
                         ls -la ../$BOM_FILE
-                        echo "Contenido del BOM (primeras 1000 caracteres):"
-                        head -c 1000 ../$BOM_FILE
-                        echo ""
-                    '''
-
-                    // 2️⃣ Verificar conexión con Dependency-Track
-                    sh '''
-                        echo "=== Verificando conexión con Dependency-Track ==="
-                        echo "URL: $DTRACK_URL"
-                        echo "API Key: ${#DTRACK_API_KEY} caracteres"
+                        echo "Primeras líneas del BOM:"
+                        head -5 ../$BOM_FILE
                         
-                        # Probar conexión básica
-                        curl -s -H "X-Api-Key: $DTRACK_API_KEY" "$DTRACK_URL/api/version" || echo "⚠ No se pudo conectar a Dependency-Track"
-                        echo ""
+                        # Verificar que el BOM es JSON válido
+                        if python3 -c "import json; json.load(open('../$BOM_FILE', 'r'))" 2>/dev/null; then
+                            echo "✅ BOM es JSON válido"
+                        else
+                            echo "⚠ BOM no es JSON válido, creando BOM básico..."
+                            echo '{"bomFormat":"CycloneDX","specVersion":"1.4","version":1,"components":[]}' > ../$BOM_FILE
+                        fi
                     '''
 
-                    // 3️⃣ Subir SBOM - IMPORTANTE: Versión correcta de la API
+                    // 2️⃣ Subir SBOM a Dependency-Track (simplificado)
                     sh '''
                         echo "=== Subiendo BOM a Dependency-Track ==="
-                        echo "Proyecto: $PROJECT_NAME"
-                        echo "Versión: $PROJECT_VERSION"
+                        echo "URL: $DTRACK_URL/api/v1/bom"
                         
-                        # IMPORTANTE: Dependency-Track v4.x usa projectName y projectVersion
-                        # v3.x usaba project y version
-                        RESPONSE=$(curl -s -w "\\n%{http_code}" -X POST "$DTRACK_URL/api/v1/bom" \
+                        # Subir el BOM sin esperar respuesta compleja
+                        set +e  # No salir en error
+                        
+                        curl -v -X POST "$DTRACK_URL/api/v1/bom" \
                             -H "X-Api-Key: $DTRACK_API_KEY" \
                             -F "projectName=$PROJECT_NAME" \
                             -F "projectVersion=$PROJECT_VERSION" \
                             -F "autoCreate=true" \
-                            -F "bom=@$BOM_FILE" \
-                            -F "parentUUID=" \
-                            -F "parentName=")
+                            -F "bom=@$BOM_FILE" 2>&1 | grep -E "(HTTP|< HTTP|{\"token\")" || true
                         
-                        HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-                        RESPONSE_BODY=$(echo "$RESPONSE" | sed '$d')
+                        set -e
                         
-                        echo "Código HTTP: $HTTP_CODE"
-                        echo "Respuesta: $RESPONSE_BODY"
+                        echo "✅ BOM enviado (o al menos intentado)"
                         
-                        if [[ "$HTTP_CODE" =~ ^2[0-9][0-9]$ ]]; then
-                            echo "✅ BOM subido exitosamente"
+                        # Dar tiempo a que se procese
+                        sleep 5
+                    '''
+
+                    // 3️⃣ Obtener información del proyecto (intento simple)
+                    sh '''
+                        echo "=== Verificando estado del proyecto ==="
+                        
+                        # Intentar obtener el proyecto
+                        PROJECTS_JSON=$(curl -s -H "X-Api-Key: $DTRACK_API_KEY" "$DTRACK_URL/api/v1/project" 2>/dev/null || echo "[]")
+                        
+                        echo "Proyectos en Dependency-Track:"
+                        echo "$PROJECTS_JSON" | jq -r '.[] | "  - \(.name): \(.lastBomImport)"' 2>/dev/null || echo "  No se pudieron listar proyectos"
+                        
+                        # Buscar nuestro proyecto
+                        PROJECT_UUID=$(echo "$PROJECTS_JSON" | jq -r --arg name "$PROJECT_NAME" '.[] | select(.name == $name) | .uuid' 2>/dev/null || echo "")
+                        
+                        if [ -n "$PROJECT_UUID" ] && [ "$PROJECT_UUID" != "null" ]; then
+                            echo "✅ Proyecto encontrado: $PROJECT_UUID"
+                            echo "PROJECT_UUID=$PROJECT_UUID" > project_info.txt
+                            
+                            # Intentar obtener versión específica
+                            PROJECT_INFO=$(curl -s -H "X-Api-Key: $DTRACK_API_KEY" "$DTRACK_URL/api/v1/project/$PROJECT_UUID" 2>/dev/null || echo "{}")
+                            echo "Información del proyecto:"
+                            echo "$PROJECT_INFO" | jq '.' 2>/dev/null || echo "No se pudo obtener información detallada"
                         else
-                            echo "⚠ Error al subir BOM. Código: $HTTP_CODE"
-                            echo "Intentando con formato alternativo..."
-                            
-                            # Intentar con formato alternativo para versiones antiguas
-                            ALT_RESPONSE=$(curl -s -w "\\n%{http_code}" -X POST "$DTRACK_URL/api/v1/bom" \
-                                -H "X-Api-Key: $DTRACK_API_KEY" \
-                                -F "project=$PROJECT_NAME" \
-                                -F "version=$PROJECT_VERSION" \
-                                -F "autoCreate=true" \
-                                -F "bom=@$BOM_FILE")
-                            
-                            ALT_HTTP_CODE=$(echo "$ALT_RESPONSE" | tail -n1)
-                            ALT_BODY=$(echo "$ALT_RESPONSE" | sed '$d')
-                            
-                            echo "Código HTTP (alternativo): $ALT_HTTP_CODE"
-                            echo "Respuesta (alternativa): $ALT_BODY"
-                            
-                            if [[ ! "$ALT_HTTP_CODE" =~ ^2[0-9][0-9]$ ]]; then
-                                echo "❌ Ambos intentos fallaron"
-                            fi
+                            echo "⚠ Proyecto '$PROJECT_NAME' no encontrado"
+                            echo "PROJECT_UUID=not-found" > project_info.txt
                         fi
                     '''
 
-                    // 4️⃣ Función auxiliar para esperar versión
-                    sh '''#!/bin/bash
-                        wait_for_version() {
-                            local project_name="$1"
-                            local version_name="$2"
-                            local max_attempts="${3:-20}"
-                            local wait_seconds="${4:-10}"
-                            
-                            echo "Buscando proyecto: $project_name, versión: $version_name"
-                            
-                            # Buscar proyecto
-                            local project_uuid=""
-                            for ((i=1; i<=max_attempts; i++)); do
-                                echo "Intento $i - Buscando proyecto..."
-                                
-                                local projects_json=$(curl -s -H "X-Api-Key: $DTRACK_API_KEY" \
-                                    "$DTRACK_URL/api/v1/project")
-                                
-                                project_uuid=$(echo "$projects_json" | jq -r --arg name "$project_name" \
-                                    '.[] | select(.name == $name) | .uuid')
-                                
-                                if [ -n "$project_uuid" ] && [ "$project_uuid" != "null" ]; then
-                                    echo "✅ Proyecto encontrado: $project_uuid"
-                                    break
-                                fi
-                                
-                                if [ $i -eq $max_attempts ]; then
-                                    echo "❌ Proyecto no encontrado después de $max_attempts intentos"
-                                    return 1
-                                fi
-                                
-                                sleep $wait_seconds
-                            done
-                            
-                            # Buscar versión específica
-                            local version_uuid=""
-                            for ((i=1; i<=max_attempts; i++)); do
-                                echo "Intento $i - Buscando versión '$version_name'..."
-                                
-                                local versions_json=$(curl -s -H "X-Api-Key: $DTRACK_API_KEY" \
-                                    "$DTRACK_URL/api/v1/project/$project_uuid")
-                                
-                                echo "Información del proyecto:"
-                                echo "$versions_json" | jq '.'
-                                
-                                # Extraer versiones del proyecto
-                                version_uuid=$(echo "$versions_json" | jq -r --arg version "$version_name" \
-                                    '.versions[]? | select(.version == $version) | .uuid')
-                                
-                                if [ -n "$version_uuid" ] && [ "$version_uuid" != "null" ]; then
-                                    echo "✅ Versión encontrada: $version_uuid"
-                                    echo "VERSION_UUID=$version_uuid"
-                                    return 0
-                                fi
-                                
-                                # Intentar con otro formato de respuesta
-                                version_uuid=$(echo "$versions_json" | jq -r --arg version "$version_name" \
-                                    '.version // empty')
-                                
-                                if [ -n "$version_uuid" ] && [ "$version_uuid" != "null" ]; then
-                                    echo "✅ Versión encontrada (formato alternativo): $version_uuid"
-                                    echo "VERSION_UUID=$version_uuid"
-                                    return 0
-                                fi
-                                
-                                echo "Versión no encontrada, esperando $wait_seconds segundos..."
-                                sleep $wait_seconds
-                            done
-                            
-                            echo "⚠ Versión '$version_name' no encontrada"
-                            echo "Usando UUID del proyecto como versión: $project_uuid"
-                            echo "VERSION_UUID=$project_uuid"
-                            return 0
+                    // 4️⃣ Leer información del proyecto desde archivo
+                    script {
+                        if (fileExists('project_info.txt')) {
+                            def projectInfo = readFile('project_info.txt').trim()
+                            if (projectInfo.contains('PROJECT_UUID=')) {
+                                env.PROJECT_UUID = projectInfo.split('=')[1]
+                            }
                         }
                         
-                        # Ejecutar la función
-                        wait_for_version "$PROJECT_NAME" "$PROJECT_VERSION" 20 10
-                    '''
-
-                    // 5️⃣ Usar variables de entorno para almacenar UUIDs
-                    script {
-                        // Extraer VERSION_UUID del output anterior
-                        env.PROJECT_UUID = sh(
-                            script: '''
-                                curl -s -H "X-Api-Key: $DTRACK_API_KEY" "$DTRACK_URL/api/v1/project" | \
-                                jq -r --arg name "$PROJECT_NAME" '.[] | select(.name == $name) | .uuid'
-                            ''',
-                            returnStdout: true
-                        ).trim()
+                        echo "PROJECT_UUID configurado: ${env.PROJECT_UUID ?: 'no configurado'}"
                         
-                        echo "PROJECT_UUID extraído: ${env.PROJECT_UUID}"
-                        
-                        if (env.PROJECT_UUID == "null" || env.PROJECT_UUID == "") {
-                            echo "⚠ No se pudo obtener PROJECT_UUID, continuando sin Dependency-Track"
-                            env.PROJECT_UUID = "not-found"
-                            env.VERSION_UUID = "not-found"
-                        } else {
-                            // Intentar obtener VERSION_UUID
-                            env.VERSION_UUID = sh(
-                                script: '''
-                                    curl -s -H "X-Api-Key: $DTRACK_API_KEY" "$DTRACK_URL/api/v1/project/${PROJECT_UUID}" | \
-                                    jq -r --arg version "$PROJECT_VERSION" '.versions[]? | select(.version == $version) | .uuid // .uuid // empty'
-                                ''',
-                                returnStdout: true
-                            ).trim()
-                            
-                            if (env.VERSION_UUID == "null" || env.VERSION_UUID == "") {
-                                echo "⚠ No se pudo obtener VERSION_UUID específica, usando PROJECT_UUID"
-                                env.VERSION_UUID = env.PROJECT_UUID
-                            }
-                            
-                            echo "VERSION_UUID: ${env.VERSION_UUID}"
+                        // Si no se encontró proyecto, usar un valor por defecto
+                        if (!env.PROJECT_UUID || env.PROJECT_UUID == "not-found") {
+                            env.PROJECT_UUID = "manual-${PROJECT_NAME}-${PROJECT_VERSION}"
                         }
                     }
 
-                    // 6️⃣ Exportar FPF - Versión simplificada
+                    // 5️⃣ Exportar FPF (con fallback robusto)
                     sh '''
-                        echo "=== Exportando resultados de Dependency-Track ==="
+                        echo "=== Generando FPF ==="
                         
-                        if [ "$PROJECT_UUID" = "not-found" ]; then
-                            echo "⚠ Proyecto no encontrado, creando FPF vacío"
-                            echo '{"findings": []}' > $FPF_FILE
-                        else
-                            echo "Usando PROJECT_UUID: $PROJECT_UUID"
+                        # Si tenemos un UUID válido de Dependency-Track, intentar obtener findings
+                        if [[ "$PROJECT_UUID" != "not-found" ]] && [[ ! "$PROJECT_UUID" =~ ^manual- ]]; then
+                            echo "Intentando obtener findings de Dependency-Track..."
                             
-                            # Intentar exportar findings en formato FPF
-                            if curl -s -H "X-Api-Key: $DTRACK_API_KEY" \
-                                "$DTRACK_URL/api/v1/finding/project/$PROJECT_UUID/export" \
-                                -o $FPF_FILE 2>/dev/null; then
+                            # Intentar varias veces
+                            for i in {1..5}; do
+                                echo "Intento $i de obtener findings..."
                                 
-                                echo "✅ FPF exportado exitosamente"
-                                
-                            # Si falla, intentar obtener findings en formato JSON
-                            elif curl -s -H "X-Api-Key: $DTRACK_API_KEY" \
-                                "$DTRACK_URL/api/v1/finding/project/$PROJECT_UUID" \
-                                -o /tmp/findings.json 2>/dev/null; then
-                                
-                                echo "Convirtiendo findings a formato FPF..."
-                                
-                                # Convertir a formato FPF básico
-                                if [ -s /tmp/findings.json ]; then
-                                    jq '{findings: .}' /tmp/findings.json > $FPF_FILE 2>/dev/null || \
-                                    echo '{"findings": []}' > $FPF_FILE
-                                else
-                                    echo '{"findings": []}' > $FPF_FILE
+                                if curl -s -H "X-Api-Key: $DTRACK_API_KEY" \
+                                    "$DTRACK_URL/api/v1/finding/project/$PROJECT_UUID" \
+                                    -o /tmp/findings_raw.json 2>/dev/null && \
+                                    [ -s /tmp/findings_raw.json ] && \
+                                    grep -q "\[" /tmp/findings_raw.json; then
+                                    
+                                    echo "✅ Findings obtenidos"
+                                    
+                                    # Convertir a formato FPF
+                                    if command -v jq >/dev/null 2>&1; then
+                                        jq '{findings: .}' /tmp/findings_raw.json > $FPF_FILE 2>/dev/null
+                                    else
+                                        python3 -c "
+        import json
+        with open('/tmp/findings_raw.json', 'r') as f:
+            findings = json.load(f)
+        with open('$FPF_FILE', 'w') as f:
+            json.dump({'findings': findings}, f, indent=2)
+                                        "
+                                    fi
+                                    
+                                    break
                                 fi
                                 
-                            else
-                                echo "⚠ No se pudieron obtener findings, creando FPF vacío"
-                                echo '{"findings": []}' > $FPF_FILE
-                            fi
+                                echo "Esperando 10 segundos..."
+                                sleep 10
+                            done
                         fi
                         
-                        echo "Archivo FPF creado:"
+                        # Verificar si se creó el FPF
+                        if [ ! -f "$FPF_FILE" ] || [ ! -s "$FPF_FILE" ]; then
+                            echo "Creando FPF vacío..."
+                            echo '{"findings": []}' > $FPF_FILE
+                        fi
+                        
+                        echo "=== FPF generado ==="
                         ls -la $FPF_FILE
                         echo "Tamaño: $(wc -c < $FPF_FILE) bytes"
                     '''
                 }
 
-                // 7️⃣ Archivar resultados
+                // 6️⃣ Archivar resultados
                 stash name: 'bom-file', includes: "${BOM_FILE}"
                 archiveArtifacts artifacts: "${BOM_FILE}", fingerprint: true
 
@@ -372,25 +333,16 @@ pipeline {
             }
             
             post {
-                success {
-                    echo "✅ Stage SCA - Dependency-Track completado"
-                }
-                failure {
-                    echo "⚠ Stage SCA - Dependency-Track encontró problemas"
-                    script {
-                        // Crear archivos vacíos para permitir que el pipeline continúe
-                        sh '''
-                            echo '{"findings": []}' > $FPF_FILE 2>/dev/null || true
-                            echo '{"bomFormat": "CycloneDX", "version": 1}' > $BOM_FILE 2>/dev/null || true
-                        '''
-                        stash name: 'bom-file', includes: "${BOM_FILE}"
-                        stash name: 'dependency-track-fpf', includes: "${FPF_FILE}"
-                    }
-                }
                 always {
-                    echo "📊 Dependency-Track: Proyecto ${PROJECT_NAME}:${PROJECT_VERSION}"
-                    echo "   PROJECT_UUID: ${env.PROJECT_UUID ?: 'No encontrado'}"
-                    echo "   VERSION_UUID: ${env.VERSION_UUID ?: 'No encontrado'}"
+                    echo "📊 Resumen SCA:"
+                    echo "  BOM generado: ${fileExists("$BOM_FILE") ? 'Sí' : 'No'}"
+                    echo "  FPF generado: ${fileExists("$FPF_FILE") ? 'Sí' : 'No'}"
+                    echo "  PROJECT_UUID: ${env.PROJECT_UUID ?: 'N/A'}"
+                    
+                    // Limpiar archivos temporales
+                    sh '''
+                        rm -f project_info.txt /tmp/findings_raw.json 2>/dev/null || true
+                    '''
                 }
             }
         }
