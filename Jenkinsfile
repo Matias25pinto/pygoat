@@ -194,30 +194,34 @@ pipeline {
             steps {
                 script {
                     
+                    def SCAN_DATE = sh(script: "date -u +%Y-%m-%dT%H:%M:%SZ", returnStdout: true).trim()
+
                     echo "Subiendo Bandit..."
                     sh(
                         script: '''
                             curl -X POST "${DD_URL}/api/v2/import-scan/" \
-                            -H "Authorization: Token DD_API_KEY" \
-                            -F "engagement=${DD_ENGAGEMENT_ID}" \
+                            -H "Authorization: Token $DD_API_KEY" \
+                            -F "engagement=$DD_ENGAGEMENT_ID" \
                             -F "scan_type=Bandit Scan" \
+                            -F "scan_date=$SCAN_DATE" \
                             -F "file=@$BANDIT_REPORT" \
                             -F "active=true" \
                             -F "verified=false"
                         ''',
-                        returnStatus: true, env: ['DD_API_KEY': DD_API_KEY, 'DD_ENGAGEMENT_ID': DD_ENGAGEMENT_ID, 'BANDIT_REPORT': BANDIT_REPORT]
+                        returnStatus: true, env: ['DD_API_KEY': DD_API_KEY, 'DD_ENGAGEMENT_ID': DD_ENGAGEMENT_ID, 'SCAN_DATE': SCAN_DATE, 'BANDIT_REPORT': BANDIT_REPORT]
                     )
 
                     echo "Subiendo Gitleaks..."
                     sh(
                         script: '''
                             curl -X POST "${DD_URL}/api/v2/import-scan/" \
-                            -H "Authorization: Token ${DD_API_KEY}" \
-                            -F "engagement=${DD_ENGAGEMENT_ID}" \
+                            -H "Authorization: Token $DD_API_KEY" \
+                            -F "engagement=$DD_ENGAGEMENT_ID" \
                             -F "scan_type=Gitleaks Scan" \
-                            -F "file=@${GITLEAKS_REPORT}"
+                            -F "scan_date=$SCAN_DATE" \
+                            -F "file=@$GITLEAKS_REPORT"
                         ''',
-                        returnStatus: true, env: ['DD_API_KEY': DD_API_KEY, 'DD_ENGAGEMENT_ID': DD_ENGAGEMENT_ID, 'GITLEAKS_REPORT': GITLEAKS_REPORT]
+                        returnStatus: true, env: ['DD_API_KEY': DD_API_KEY, 'DD_ENGAGEMENT_ID': DD_ENGAGEMENT_ID, 'SCAN_DATE': SCAN_DATE, 'GITLEAKS_REPORT': GITLEAKS_REPORT]
                     )
                 }
             }
