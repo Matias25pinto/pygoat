@@ -309,16 +309,16 @@ pipeline {
                         //Leer resultados
                         def output = readFile('metrics_output.txt').trim()
 
-                        echo "=== MÉTRICAS COMPLETAS ==="
-                        echo output
-                        
                         def critical = 0
                         def high = 0
                         
                         output.eachLine { line ->
+
                             if (line.startsWith('CRITICAL=')) {
                                 critical = line.replace('CRITICAL=', '').toInteger()
-                            } else if (line.startsWith('HIGH=')) {
+                            }
+                            
+                            if (line.startsWith('HIGH=')) {
                                 high = line.replace('HIGH=', '').toInteger()
                             }
                         }
