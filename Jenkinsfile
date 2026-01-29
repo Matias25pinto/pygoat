@@ -227,23 +227,52 @@ pipeline {
         }
 
         stage('Security Gate - Bandit') {
+            agent any
             steps {
                 script {
+                    echo "Verificando security gate para Bandit..."
+                    
                     if (fileExists(BANDIT_REPORT)) {
-                        def report = readJSON file: BANDIT_REPORT
+                        def highCount = sh(
+                            script: """
+                                jq '[.results[] | select(.issue_severity == "HIGH")] | length' "${BANDIT_REPORT}" 2>/dev/null || echo "0"
+                            """,
+                            returnStdout: true
+                        ).trim().toInteger()
                         
-                        def highCount = report.results.count { it.issue_severity == "HIGH" }
+                        def mediumCount = sh(
+                            script: """
+                                jq '[.results[] | select(.issue_severity == "MEDIUM")] | length' "${BANDIT_REPORT}" 2>/dev/null || echo "0"
+                            """,
+                            returnStdout: true
+                        ).trim().toInteger()
                         
-                        echo "Bandit Security Gate:"
-                        echo "  - HIGH (críticas): ${highCount}"
-                        echo "  - MEDIUM: ${report.results.count { it.issue_severity == "MEDIUM" }}"
-                        echo "  - LOW: ${report.results.count { it.issue_severity == "LOW" }}"
+                        def lowCount = sh(
+                            script: """
+                                jq '[.results[] | select(.issue_severity == "LOW")] | length' "${BANDIT_REPORT}" 2>/dev/null || echo "0"
+                            """,
+                            returnStdout: true
+                        ).trim().toInteger()
+                        
+                        echo "Resumen de Bandit (usando jq):"
+                        echo "  - HIGH: ${highCount}"
+                        echo "  - MEDIUM: ${mediumCount}"
+                        echo "  - LOW: ${lowCount}"
                         
                         if (highCount > 0) {
-                            error("✗ SECURITY GATE FALLIDO: ${highCount} vulnerabilidades HIGH encontradas")
+                            echo "=== VULNERABILIDADES HIGH DETECTADAS ==="
+                            
+                            sh """
+                                echo "Lista de vulnerabilidades HIGH:"
+                                jq -r '.results[] | select(.issue_severity == "HIGH") | "\(.filename):\(.line_number) - \(.issue_text)"' "${BANDIT_REPORT}" 2>/dev/null || true
+                            """
+                            
+                            error("SECURITY GATE FALLIDO: Bandit encontró ${highCount} vulnerabilidades HIGH")
                         } else {
-                            echo "✓ Security Gate: PASSED"
+                            echo "✅ Security Gate: PASSED"
                         }
+                    } else {
+                        echo "No se encontró reporte de Bandit"
                     }
                 }
             }
