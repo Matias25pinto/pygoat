@@ -238,26 +238,21 @@ pipeline {
                         if (jsonContent == "{}" || jsonContent == "") {
                             echo "No hay hallazgos de Bandit"
                         } else {
-                            // CORRECCIÓN: Bandit NO tiene "CRITICAL", solo HIGH/MEDIUM/LOW
-                            // Contar HIGH correctamente
-                            def highCount = sh(script: '''
-                                # Usar grep -o para contar ocurrencias exactas
-                                grep -o '"issue_severity": "HIGH"' $BANDIT_REPORT | wc -l || echo 0
+                            def highCountJq = sh(script: '''
+                                jq '[.results[] | select(.issue_severity == "HIGH")] | length' $BANDIT_REPORT 2>/dev/null || echo 0
                             ''', returnStdout: true, env: ['BANDIT_REPORT': BANDIT_REPORT]).trim().toInteger()
                             
-                            echo "Resumen de Bandit:"
-                            echo "  - Vulnerabilidades HIGH (graves): ${highCount}"
+                            echo "Resumen de Bandit (usando jq):"
+                            echo "  - Vulnerabilidades HIGH (graves): ${highCountJq}"
                             
-                            if (highCount > 0) {
+                            if (highCountJq > 0) {
+                                // Mostrar detalles de las vulnerabilidades HIGH
                                 sh """
                                     echo "VULNERABILIDADES HIGH ENCONTRADAS:"
-                                    echo "=== LISTA ==="
-                                    # Extraer información básica de cada vulnerabilidad HIGH
-                                    grep -B1 -A3 '"issue_severity": "HIGH"' ${BANDIT_REPORT} | \
-                                    grep -E '(filename|line_number|issue_text)' | \
-                                    head -20 || true
+                                    echo "=== DETALLES ==="
+                                    jq -r '.results[] | select(.issue_severity == "HIGH") | "- \\(.test_id): \\(.issue_text) (línea \\(.line_number))"' ${BANDIT_REPORT} || true
                                 """
-                                error("SECURITY GATE FALLIDO: Bandit encontró ${highCount} vulnerabilidades HIGH")
+                                error("SECURITY GATE FALLIDO: Bandit encontró ${highCountJq} vulnerabilidades HIGH")
                             } else {
                                 echo "✅ Security Gate: PASSED"
                             }
