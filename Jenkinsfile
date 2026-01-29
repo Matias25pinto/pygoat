@@ -227,44 +227,23 @@ pipeline {
         }
 
         stage('Security Gate - Bandit') {
-            agent any
             steps {
                 script {
-                    echo "Verificando security gate para Bandit..."
-                    
                     if (fileExists(BANDIT_REPORT)) {
-                        def jsonContent = readFile(BANDIT_REPORT).trim()
+                        def report = readJSON file: BANDIT_REPORT
                         
-                        if (jsonContent == "{}" || jsonContent == "") {
-                            echo "No hay hallazgos de Bandit"
+                        def highCount = report.results.count { it.issue_severity == "HIGH" }
+                        
+                        echo "Bandit Security Gate:"
+                        echo "  - HIGH (críticas): ${highCount}"
+                        echo "  - MEDIUM: ${report.results.count { it.issue_severity == "MEDIUM" }}"
+                        echo "  - LOW: ${report.results.count { it.issue_severity == "LOW" }}"
+                        
+                        if (highCount > 0) {
+                            error("✗ SECURITY GATE FALLIDO: ${highCount} vulnerabilidades HIGH encontradas")
                         } else {
-                            def criticalCount = sh(script: '''
-                                grep -c '"issue_severity": "CRITICAL"' $BANDIT_REPORT || true
-                            ''', returnStdout: true, env: ['BANDIT_REPORT': BANDIT_REPORT]).trim().toInteger()
-                            
-                            def highCount = sh(script: '''
-                                grep -c '"issue_severity": "HIGH"' $BANDIT_REPORT || true
-                            ''', returnStdout: true, env: ['BANDIT_REPORT': BANDIT_REPORT]).trim().toInteger()
-                            
-                            echo "Resumen de Bandit:"
-                            echo "  - Vulnerabilidades CRÍTICAS: ${criticalCount}"
-                            echo "  - Vulnerabilidades ALTAS: ${highCount}"
-                            
-                            if (criticalCount > 0 || highCount > 0) {
-                                sh """
-                                    echo "VULNERABILIDADES ENCONTRADAS:"
-                                    echo "=== CRÍTICAS ==="
-                                    grep -A2 -B2 '"issue_severity": "CRITICAL"' ${BANDIT_REPORT} | head -20 || true
-                                    echo "=== ALTAS ==="
-                                    grep -A2 -B2 '"issue_severity": "HIGH"' ${BANDIT_REPORT} | head -20 || true
-                                """
-                                error("SECURITY GATE FALLIDO: Bandit encontró ${criticalCount} críticas y ${highCount} altas")
-                            } else {
-                                echo "Security Gate: No se encontraron vulnerabilidades críticas/altas"
-                            }
+                            echo "✓ Security Gate: PASSED"
                         }
-                    } else {
-                        echo "No se encontró reporte de Bandit"
                     }
                 }
             }
