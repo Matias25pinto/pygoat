@@ -30,7 +30,6 @@ pipeline {
                     git clone https://github.com/Matias25pinto/pygoat.git pygoat
                     git config --global --add safe.directory $WORKSPACE/pygoat
                     cd pygoat
-                    git checkout ejercicio-2
                 '''
 
                 // Stash para compartir el código entre stages con diferentes agentes
