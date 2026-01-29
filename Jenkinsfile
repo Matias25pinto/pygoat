@@ -308,6 +308,10 @@ pipeline {
                         
                         //Leer resultados
                         def output = readFile('metrics_output.txt').trim()
+
+                        echo "=== MÉTRICAS COMPLETAS ==="
+                        echo output
+                        
                         def critical = 0
                         def high = 0
                         
