@@ -307,20 +307,22 @@ pipeline {
                         sh 'chmod +x get_metrics.sh && ./get_metrics.sh > metrics_output.txt'
                         
                         //Leer resultados
-                        def output = readFile('metrics_output.txt').trim()
+                        def output = readFile('metrics_output.txt')
+                        def critical = (output =~ /CRITICAL=(\d+)/)[0][1].toInteger()
+                        def high     = (output =~ /HIGH=(\d+)/)[0][1].toInteger()
+                        // def output = readFile('metrics_output.txt').trim()
 
-                        def critical = 0
-                        def high = 0
+                        // def critical = 0
+                        // def high = 0
                         
-                        output.eachLine { line ->
-                            line = line.trim()
-                            if (line.startsWith('CRITICAL=')) {
-                                critical = line.replace('CRITICAL=', '').toInteger()
-                            }
-                            if (line.startsWith('HIGH=')) {
-                                high = line.replace('HIGH=', '').toInteger()
-                            }
-                        }
+                        // output.eachLine { line ->
+                        //     line = line.trim()
+                        //     if (line.startsWith('CRITICAL=')) {
+                        //         critical = line.replace('CRITICAL=', '').toInteger()
+                        //     }else if (line.startsWith('HIGH=')) {
+                        //         high = line.replace('HIGH=', '').toInteger()
+                        //     }
+                        // }
                         
                         echo "Métricas Dependency-Track:"
                         echo "  - Críticas: ${critical}"
