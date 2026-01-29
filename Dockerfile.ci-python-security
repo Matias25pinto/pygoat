@@ -1,0 +1,42 @@
+FROM python:3.11-slim
+
+LABEL   name="ci-python-security" \
+        description="CI image with python3, git, curl, bandit, cyclonedx, jq" \
+        maintainer="Matias Pinto"
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+# Dependencias del sistema
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        git \
+        curl \
+        ca-certificates \
+        build-essential \
+        python3-dev \
+        libssl-dev \
+        libffi-dev \
+        jq \
+    && rm -rf /var/lib/apt/lists/*
+
+# Instalación global de herramientas Python
+RUN python -m pip install --upgrade pip setuptools wheel && \
+    python -m pip install --no-cache-dir \
+        bandit \
+        cyclonedx-bom \
+        "cyclonedx-python-lib[json-validation]" \
+        safety \
+        pip-audit \
+        virtualenv
+
+# Usuario no-root
+RUN useradd -m -u 1001 ciuser
+USER ciuser
+WORKDIR /workspace
+
+# PATH correcto para binarios locales y globales
+ENV PATH="/home/ciuser/.local/bin:/usr/local/bin:${PATH}"
+
+CMD ["python"]
