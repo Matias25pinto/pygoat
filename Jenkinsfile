@@ -233,43 +233,34 @@ pipeline {
                     echo "Verificando security gate para Bandit..."
                     
                     if (fileExists(BANDIT_REPORT)) {
-                        def highCount = sh(
-                            script: """
-                                jq '[.results[] | select(.issue_severity == "HIGH")] | length' "${BANDIT_REPORT}" 2>/dev/null || echo "0"
-                            """,
-                            returnStdout: true
-                        ).trim().toInteger()
+                        def jsonContent = readFile(BANDIT_REPORT).trim()
                         
-                        def mediumCount = sh(
-                            script: """
-                                jq '[.results[] | select(.issue_severity == "MEDIUM")] | length' "${BANDIT_REPORT}" 2>/dev/null || echo "0"
-                            """,
-                            returnStdout: true
-                        ).trim().toInteger()
-                        
-                        def lowCount = sh(
-                            script: """
-                                jq '[.results[] | select(.issue_severity == "LOW")] | length' "${BANDIT_REPORT}" 2>/dev/null || echo "0"
-                            """,
-                            returnStdout: true
-                        ).trim().toInteger()
-                        
-                        echo "Resumen de Bandit (usando jq):"
-                        echo "  - HIGH: ${highCount}"
-                        echo "  - MEDIUM: ${mediumCount}"
-                        echo "  - LOW: ${lowCount}"
-                        
-                        if (highCount > 0) {
-                            echo "=== VULNERABILIDADES HIGH DETECTADAS ==="
-                            
-                            sh """
-                                echo "Lista de vulnerabilidades HIGH:"
-                                jq -r '.results[] | select(.issue_severity == "HIGH") | "\(.filename):\(.line_number) - \(.issue_text)"' "${BANDIT_REPORT}" 2>/dev/null || true
-                            """
-                            
-                            error("SECURITY GATE FALLIDO: Bandit encontró ${highCount} vulnerabilidades HIGH")
+                        if (jsonContent == "{}" || jsonContent == "") {
+                            echo "No hay hallazgos de Bandit"
                         } else {
-                            echo "✅ Security Gate: PASSED"
+                            // CORRECCIÓN: Bandit NO tiene "CRITICAL", solo HIGH/MEDIUM/LOW
+                            // Contar HIGH correctamente
+                            def highCount = sh(script: '''
+                                # Usar grep -o para contar ocurrencias exactas
+                                grep -o '"issue_severity": "HIGH"' $BANDIT_REPORT | wc -l || echo 0
+                            ''', returnStdout: true, env: ['BANDIT_REPORT': BANDIT_REPORT]).trim().toInteger()
+                            
+                            echo "Resumen de Bandit:"
+                            echo "  - Vulnerabilidades HIGH (graves): ${highCount}"
+                            
+                            if (highCount > 0) {
+                                sh """
+                                    echo "VULNERABILIDADES HIGH ENCONTRADAS:"
+                                    echo "=== LISTA ==="
+                                    # Extraer información básica de cada vulnerabilidad HIGH
+                                    grep -B1 -A3 '"issue_severity": "HIGH"' ${BANDIT_REPORT} | \
+                                    grep -E '(filename|line_number|issue_text)' | \
+                                    head -20 || true
+                                """
+                                error("SECURITY GATE FALLIDO: Bandit encontró ${highCount} vulnerabilidades HIGH")
+                            } else {
+                                echo "✅ Security Gate: PASSED"
+                            }
                         }
                     } else {
                         echo "No se encontró reporte de Bandit"
