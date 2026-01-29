@@ -313,11 +313,10 @@ pipeline {
                         def high = 0
                         
                         output.eachLine { line ->
-
+                            line = line.trim()
                             if (line.startsWith('CRITICAL=')) {
                                 critical = line.replace('CRITICAL=', '').toInteger()
                             }
-                            
                             if (line.startsWith('HIGH=')) {
                                 high = line.replace('HIGH=', '').toInteger()
                             }
