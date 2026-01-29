@@ -227,7 +227,12 @@ pipeline {
         }
 
         stage('Security Gate - Bandit') {
-            agent any
+            agent {
+                docker {
+                    image 'ci-python-security:latest'
+                    reuseNode true
+                }
+            }
             steps {
                 script {
                     echo "Verificando security gate para Bandit..."
