@@ -244,10 +244,10 @@ pipeline {
                             echo "No hay hallazgos de Bandit"
                         } else {
                             def highCountJq = sh(script: '''
-                                jq '[.results[] | select(.issue_severity == "HIGH")] | length' $BANDIT_REPORT 2>/dev/null || echo 0
+                                jq '[.results[] | select(.issue_severity == "HIGH")] | length' $BANDIT_REPORT
                             ''', returnStdout: true, env: ['BANDIT_REPORT': BANDIT_REPORT]).trim().toInteger()
                             
-                            echo "Resumen de Bandit (usando jq):"
+                            echo "Resumen de Bandit: "
                             echo "  - Vulnerabilidades HIGH (graves): ${highCountJq}"
                             
                             if (highCountJq > 0) {
