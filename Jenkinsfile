@@ -266,7 +266,7 @@ pipeline {
                                     echo "=== DETALLES ==="
                                     jq -r '.results[] | select(.issue_severity == "HIGH") | "- \\(.test_id): \\(.issue_text) (línea \\(.line_number))"' ${BANDIT_REPORT} || true
                                 """
-                                error("SECURITY GATE FALLIDO: Bandit encontró ${highCountJq} vulnerabilidades Altas")
+                                error("SECURITY GATE FALLIDO: Bandit reportó ${highCountJq} altas")
                             } else {
                                 echo "✅ Security Gate: PASSED"
                             }
