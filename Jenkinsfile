@@ -364,11 +364,18 @@ pipeline {
                                 withEnv(["PROJECT_UUID=${projectUuid}"]) {
                                     def metricsResponse = sh(
                                         script: '''
-                                            curl -s -w "%{http_code}" \
+                                            set -e
+
+                                            HTTP_CODE=$(curl -s \
                                                 --max-time 10 \
                                                 --connect-timeout 5 \
+                                                -o response.json \
+                                                -w "%{http_code}" \
                                                 -X GET "$DTRACK_URL/api/v1/metrics/project/$PROJECT_UUID/current" \
-                                                -H "X-Api-Key: $DTRACK_API_KEY"
+                                                -H "X-Api-Key: $DTRACK_API_KEY")
+
+                                            echo "HTTP_CODE=$HTTP_CODE"
+                                            cat response.json
                                         ''',
                                         returnStdout: true
                                     )
