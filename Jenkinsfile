@@ -56,7 +56,7 @@ pipeline {
                     def banditExitCode = sh(script: '''
                         cd pygoat
                         bandit -r . -f json -o ../$BANDIT_REPORT
-                    ''', returnStatus: true)
+                    ''', returnStatus: true, env: ['BANDIT_REPORT': BANDIT_REPORT])
                     
                     echo "Bandit exit code: ${banditExitCode}"
                     
@@ -109,12 +109,12 @@ pipeline {
                     // Subir SBOM a Dependency-Track
                     def uploadExitCode = sh(script: '''
                         curl -s -X POST "$DTRACK_URL/api/v1/bom" \
-                        -H "X-Api-Key: $DTRACK_API_KEY" \
-                        -F "projectName=$PROJECT_NAME" \
-                        -F "projectVersion=$PROJECT_VERSION" \
+                        -H "X-Api-Key: $DTRACK_KEY" \
+                        -F "projectName=$PROJECT" \
+                        -F "projectVersion=$VERSION" \
                         -F "autoCreate=true" \
-                        -F "bom=@$BOM_FILE"
-                    ''', returnStatus: true)
+                        -F "bom=@$FILE"
+                    ''', returnStatus: true, env: ['FILE': BOM_FILE, 'DTRACK_KEY':DTRACK_API_KEY, 'PROJECT':PROJECT_NAME, 'VERSION':PROJECT_VERSION])
                     
                     echo "Curl exit code: ${uploadExitCode}"
                     
@@ -164,7 +164,7 @@ pipeline {
                             --report-path $GITLEAKS_REPORT \
                             --no-git
                         ''',
-                        returnStatus: true
+                        returnStatus: true, env: ['GITLEAKS_REPORT': GITLEAKS_REPORT]
                     )
 
                     archiveArtifacts artifacts: "${GITLEAKS_REPORT}",
@@ -205,7 +205,7 @@ pipeline {
                             -F "active=true" \
                             -F "verified=true"
                         ''',
-                        returnStatus: true
+                        returnStatus: true, env: ['DD_API_KEY': DD_API_KEY, 'DD_ENGAGEMENT_ID': DD_ENGAGEMENT_ID, 'SCAN_DATE': SCAN_DATE, 'BANDIT_REPORT': BANDIT_REPORT]
                     )
 
                     echo "Subiendo Gitleaks..."
@@ -220,7 +220,7 @@ pipeline {
                             -F "active=true" \
                             -F "verified=true"
                         ''',
-                        returnStatus: true
+                        returnStatus: true, env: ['DD_API_KEY': DD_API_KEY, 'DD_ENGAGEMENT_ID': DD_ENGAGEMENT_ID, 'SCAN_DATE': SCAN_DATE, 'GITLEAKS_REPORT': GITLEAKS_REPORT]
                     )
                 }
             }
@@ -241,11 +241,10 @@ pipeline {
                         def jsonContent = readFile(BANDIT_REPORT).trim()
                         
                         //Validar estructura json
-                        def hasField = sh(script: '''
-                            jq -e '.results[0] | has(issue_severity)' $BANDIT_REPORT,
-                            ''', returnStatus: true
+                        def hasField = sh(script: 
+                            "jq -e '.results[0] | has(\"issue_severity\")' ${BANDIT_REPORT}",
+                            returnStatus: true
                         )
-
                         if (hasField != 0) {
                             error("Campo issue_severity no existe - actualizar pipeline")
                         }
@@ -255,7 +254,7 @@ pipeline {
                         } else {
                             def highCountJq = sh(script: '''
                                 jq '[.results[] | select(.issue_severity == "HIGH")] | length' $BANDIT_REPORT
-                            ''', returnStdout: true).trim().toInteger()
+                            ''', returnStdout: true, env: ['BANDIT_REPORT': BANDIT_REPORT]).trim().toInteger()
                             
                             echo "Resumen de Bandit: "
                             echo "  - Vulnerabilidades HIGH (graves): ${highCountJq}"
