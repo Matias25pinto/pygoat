@@ -6,7 +6,7 @@ pipeline {
         // Defect Dojo
         DD_URL = 'http://django-defectdojo-nginx-1:8080'
         DD_API_KEY = credentials('defectdojo-api-key')
-        DD_ENGAGEMENT_ID = '4'
+        DD_ENGAGEMENT_ID = '3'//TODO volver a 4
         
         // Nombres de archivos
         BANDIT_REPORT = 'reporte_bandit.json'
