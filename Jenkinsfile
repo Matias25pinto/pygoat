@@ -361,23 +361,16 @@ pipeline {
                             try {
                                 echo "Intento ${attempt}/${maxAttempts}: Obteniendo métricas para ${projectUuid}"
                                 
-                                withEnv([
-                                    "PROJECT_UUID=${projectUuid}",
-                                    "DT_URL=${DTRACK_URL}", 
-                                    "DT_KEY=${DTRACK_API_KEY}"
-                                ]) {
-                                    def metricsResponse = sh(
-                                        script: '''
-                                            # Aquí el shell ya conoce estas variables porque están en su environment
-                                            curl -s -w "%{http_code}" \
-                                                --max-time 10 \
-                                                --connect-timeout 5 \
-                                                -X GET "$DT_URL/api/v1/metrics/project/$PROJECT_UUID/current" \
-                                                -H "X-Api-Key: $DT_KEY"
-                                        ''',
-                                        returnStdout: true
-                                    ).trim()
-                                }
+                                def metricsResponse = sh(
+                                    script: """
+                                        curl -s -w "%{http_code}" \
+                                            --max-time 10 \
+                                            --connect-timeout 5 \
+                                            -X GET "\$DTRACK_URL/api/v1/metrics/project/\${projectUuid}/current" \
+                                            -H "X-Api-Key: \$DTRACK_API_KEY"
+                                    """,
+                                    returnStdout: true
+                                )
                                 
                                 def httpCode = metricsResponse[-3..-1].trim()
                                 def response = metricsResponse[0..-4]
