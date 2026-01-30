@@ -226,57 +226,57 @@ pipeline {
             }
         }
 
-        // stage('Security Gate - Bandit') {
-        //     agent {
-        //         docker {
-        //             image 'ci-python-security:latest'
-        //             reuseNode true
-        //         }
-        //     }
-        //     steps {
-        //         script {
-        //             echo "Verificando security gate para Bandit..."
+        stage('Security Gate - Bandit') {
+            agent {
+                docker {
+                    image 'ci-python-security:latest'
+                    reuseNode true
+                }
+            }
+            steps {
+                script {
+                    echo "Verificando security gate para Bandit..."
                     
-        //             if (fileExists(BANDIT_REPORT)) {
-        //                 def jsonContent = readFile(BANDIT_REPORT).trim()
+                    if (fileExists(BANDIT_REPORT)) {
+                        def jsonContent = readFile(BANDIT_REPORT).trim()
                         
-        //                 //Validar estructura json
-        //                 def hasField = sh(script: 
-        //                     "jq -e '.results[0] | has(\"issue_severity\")' ${BANDIT_REPORT}",
-        //                     returnStatus: true
-        //                 )
-        //                 if (hasField != 0) {
-        //                     error("Campo issue_severity no existe - actualizar pipeline")
-        //                 }
+                        //Validar estructura json
+                        def hasField = sh(script: 
+                            "jq -e '.results[0] | has(\"issue_severity\")' ${BANDIT_REPORT}",
+                            returnStatus: true
+                        )
+                        if (hasField != 0) {
+                            error("Campo issue_severity no existe - actualizar pipeline")
+                        }
 
-        //                 if (jsonContent == "{}" || jsonContent == "") {
-        //                     echo "No hay hallazgos de Bandit"
-        //                 } else {
-        //                     def highCountJq = sh(script: '''
-        //                         jq '[.results[] | select(.issue_severity == "HIGH")] | length' $BANDIT_REPORT
-        //                     ''', returnStdout: true, env: ['BANDIT_REPORT': BANDIT_REPORT]).trim().toInteger()
+                        if (jsonContent == "{}" || jsonContent == "") {
+                            echo "No hay hallazgos de Bandit"
+                        } else {
+                            def highCountJq = sh(script: '''
+                                jq '[.results[] | select(.issue_severity == "HIGH")] | length' $BANDIT_REPORT
+                            ''', returnStdout: true, env: ['BANDIT_REPORT': BANDIT_REPORT]).trim().toInteger()
                             
-        //                     echo "Resumen de Bandit: "
-        //                     echo "  - Vulnerabilidades HIGH (graves): ${highCountJq}"
+                            echo "Resumen de Bandit: "
+                            echo "  - Vulnerabilidades HIGH (graves): ${highCountJq}"
                             
-        //                     if (highCountJq > 0) {
-        //                         // Mostrar detalles de las vulnerabilidades HIGH
-        //                         sh """
-        //                             echo "VULNERABILIDADES HIGH ENCONTRADAS:"
-        //                             echo "=== DETALLES ==="
-        //                             jq -r '.results[] | select(.issue_severity == "HIGH") | "- \\(.test_id): \\(.issue_text) (línea \\(.line_number))"' ${BANDIT_REPORT} || true
-        //                         """
-        //                         error("SECURITY GATE FALLIDO: Bandit encontró ${highCountJq} vulnerabilidades HIGH")
-        //                     } else {
-        //                         echo "✅ Security Gate: PASSED"
-        //                     }
-        //                 }
-        //             } else {
-        //                 echo "No se encontró reporte de Bandit"
-        //             }
-        //         }
-        //     }
-        // }
+                            if (highCountJq > 0) {
+                                // Mostrar detalles de las vulnerabilidades HIGH
+                                sh """
+                                    echo "VULNERABILIDADES HIGH ENCONTRADAS:"
+                                    echo "=== DETALLES ==="
+                                    jq -r '.results[] | select(.issue_severity == "HIGH") | "- \\(.test_id): \\(.issue_text) (línea \\(.line_number))"' ${BANDIT_REPORT} || true
+                                """
+                                error("SECURITY GATE FALLIDO: Bandit encontró ${highCountJq} vulnerabilidades Altas")
+                            } else {
+                                echo "✅ Security Gate: PASSED"
+                            }
+                        }
+                    } else {
+                        echo "No se encontró reporte de Bandit"
+                    }
+                }
+            }
+        }
 
         stage('Security Gate - Dependency-Track') {
             agent {
