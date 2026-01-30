@@ -300,13 +300,13 @@ pipeline {
                                 echo "Intento ${attempt}/${maxAttempts}: Buscando proyecto ${PROJECT_NAME}:${PROJECT_VERSION}"
                                 
                                 def projectInfo = sh(
-                                    script: '''
+                                    script: """
                                         curl -s -w "%{http_code}" \
                                             --max-time 10 \
                                             --connect-timeout 5 \
                                             -X GET "$DTRACK_URL/api/v1/project/lookup?name=$PROJECT_NAME&version=$PROJECT_VERSION" \
                                             -H "X-Api-Key: $DTRACK_API_KEY"
-                                    ''',
+                                    """,
                                     returnStdout: true
                                 )
                                 
@@ -361,18 +361,16 @@ pipeline {
                             try {
                                 echo "Intento ${attempt}/${maxAttempts}: Obteniendo métricas para ${projectUuid}"
                                 
-                                withEnv(["PROJECT_UUID=${projectUuid}"]) {
-                                    def metricsResponse = sh(
-                                        script: '''
-                                            curl -s -w "%{http_code}" \
+                                def metricsResponse = sh(
+                                    script: """
+                                        curl -s -w "%{http_code}" \
                                             --max-time 10 \
                                             --connect-timeout 5 \
-                                            -X GET "$DTRACK_URL/api/v1/metrics/project/$PROJECT_UUID/current" \
+                                            -X GET "$DTRACK_URL/api/v1/metrics/project/${projectUuid}/current" \
                                             -H "X-Api-Key: $DTRACK_API_KEY"
-                                        ''',
-                                        returnStdout: true
-                                    )
-                                }
+                                    """,
+                                    returnStdout: true
+                                )
                                 
                                 def httpCode = metricsResponse[-3..-1].trim()
                                 def response = metricsResponse[0..-4]
