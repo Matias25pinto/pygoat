@@ -109,12 +109,12 @@ pipeline {
                     // Subir SBOM a Dependency-Track
                     def uploadExitCode = sh(script: '''
                         curl -s -X POST "$DTRACK_URL/api/v1/bom" \
-                        -H "X-Api-Key: $DTRACK_API_KEY" \
-                        -F "projectName=$PROJECT_NAME" \
-                        -F "projectVersion=$PROJECT_VERSION" \
+                        -H "X-Api-Key: $DTRACK_KEY" \
+                        -F "projectName=$PROJECT" \
+                        -F "projectVersion=$VERSION" \
                         -F "autoCreate=true" \
-                        -F "bom=@$BOM_FILE"
-                    ''', returnStatus: true, env: ['BOM_FILE': BOM_FILE])
+                        -F "bom=@$FILE"
+                    ''', returnStatus: true, env: ['FILE': BOM_FILE, 'DTRACK_KEY':DTRACK_API_KEY, 'PROJECT':PROJECT_NAME, 'VERSION':PROJECT_VERSION])
                     
                     echo "Curl exit code: ${uploadExitCode}"
                     
@@ -300,14 +300,14 @@ pipeline {
                                 echo "Intento ${attempt}/${maxAttempts}: Buscando proyecto ${PROJECT_NAME}:${PROJECT_VERSION}"
                                 
                                 def projectInfo = sh(
-                                    script: """
+                                    script: '''
                                         curl -s -w "%{http_code}" \
                                             --max-time 10 \
                                             --connect-timeout 5 \
-                                            -X GET "$DTRACK_URL/api/v1/project/lookup?name=$PROJECT_NAME&version=$PROJECT_VERSION" \
-                                            -H "X-Api-Key: $DTRACK_API_KEY"
-                                    """,
-                                    returnStdout: true
+                                            -X GET "$URL/api/v1/project/lookup?name=$PROJECT&version=$VERSION" \
+                                            -H "X-Api-Key: $DTRACK_KEY"
+                                    ''',
+                                    returnStdout: true, env: ['URL':DTRACK_URL, 'DTRACK_KEY':DTRACK_API_KEY, 'PROJECT':PROJECT_NAME, 'VERSION':PROJECT_VERSION]
                                 )
                                 
                                 def httpCode = projectInfo[-3..-1].trim()
@@ -367,9 +367,9 @@ pipeline {
                                             --max-time 10 \
                                             --connect-timeout 5 \
                                             -X GET "$DTRACK_URL/api/v1/metrics/project/${projectUuid}/current" \
-                                            -H "X-Api-Key: $DTRACK_API_KEY"
+                                            -H "X-Api-Key: $DTRACK_KEY"
                                     """,
-                                    returnStdout: true
+                                    returnStdout: true, env: ['URL':DTRACK_URL, 'DTRACK_KEY':DTRACK_API_KEY, 'PROJECT':PROJECT_NAME, 'VERSION':PROJECT_VERSION]
                                 )
                                 
                                 def httpCode = metricsResponse[-3..-1].trim()
