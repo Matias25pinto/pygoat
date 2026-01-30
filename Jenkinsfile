@@ -361,24 +361,22 @@ pipeline {
                             try {
                                 echo "Intento ${attempt}/${maxAttempts}: Obteniendo métricas para ${projectUuid}"
                                 
-                                withEnv(["PROJECT_UUID=${projectUuid}"]) {
+                                withEnv([
+                                    "PROJECT_UUID=${projectUuid}",
+                                    "DT_URL=${DTRACK_URL}", 
+                                    "DT_KEY=${DTRACK_API_KEY}"
+                                ]) {
                                     def metricsResponse = sh(
                                         script: '''
-                                            set -e
-
-                                            HTTP_CODE=$(curl -s \
+                                            # Aquí el shell ya conoce estas variables porque están en su environment
+                                            curl -s -w "%{http_code}" \
                                                 --max-time 10 \
                                                 --connect-timeout 5 \
-                                                -o response.json \
-                                                -w "%{http_code}" \
-                                                -X GET "$DTRACK_URL/api/v1/metrics/project/$PROJECT_UUID/current" \
-                                                -H "X-Api-Key: $DTRACK_API_KEY")
-
-                                            echo "HTTP_CODE=$HTTP_CODE"
-                                            cat response.json
+                                                -X GET "$DT_URL/api/v1/metrics/project/$PROJECT_UUID/current" \
+                                                -H "X-Api-Key: $DT_KEY"
                                         ''',
                                         returnStdout: true
-                                    )
+                                    ).trim()
                                 }
                                 
                                 def httpCode = metricsResponse[-3..-1].trim()
