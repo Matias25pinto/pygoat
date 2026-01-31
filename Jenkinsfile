@@ -285,150 +285,138 @@ pipeline {
                 script {
                     withCredentials([string(credentialsId: 'dependency-track-api-key', variable: 'DTRACK_API_KEY')]) {
 
-                        def maxAttempts = 24
+                        def maxAttempts = 24 
                         def waitSeconds = 5
-                        def metricsAvailable = false
                         def projectUuid = null
-                        
+
                         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-                            try {
-                                echo "Intento ${attempt}/${maxAttempts}: Buscando proyecto ${PROJECT_NAME}:${PROJECT_VERSION}"
-                                
-                                def projectInfo = sh(
-                                    script: '''
-                                        curl -s -w "%{http_code}" \
-                                            --max-time 10 \
-                                            --connect-timeout 5 \
-                                            -X GET "$DTRACK_URL/api/v1/project/lookup?name=$PROJECT_NAME&version=$PROJECT_VERSION" \
-                                            -H "X-Api-Key: $DTRACK_API_KEY"
-                                    ''',
-                                    returnStdout: true
-                                )
-                                
-                                def httpCode = projectInfo[-3..-1].trim()
-                                def response = projectInfo[0..-4]
-                                
-                                if (httpCode != "200") {
-                                    if (attempt < maxAttempts) {
-                                        echo "API respondió con código ${httpCode}, reintentando en ${waitSeconds}s..."
-                                        sleep(time: waitSeconds, unit: 'SECONDS')
-                                        continue
-                                    } else {
-                                        error("API falló después de ${maxAttempts} intentos: HTTP ${httpCode}")
-                                    }
-                                }
-                                
-                                def uuid = sh(
-                                    script: """
-                                        echo '${response}' | jq -r '.uuid // empty'
-                                    """,
-                                    returnStdout: true
-                                ).trim()
-                                
-                                if (uuid && uuid != "null" && uuid != "") {
-                                    projectUuid = uuid
-                                    echo "Proyecto encontrado: UUID=${projectUuid}"
-                                    break
-                                } else {
-                                    if (attempt < maxAttempts) {
-                                        echo "Proyecto no encontrado aún, reintentando en ${waitSeconds}s..."
-                                        sleep(time: waitSeconds, unit: 'SECONDS')
-                                    } else {
-                                        error("Proyecto no encontrado después de ${maxAttempts} intentos")
-                                    }
-                                }
-                                
-                            } catch (Exception e) {
+                            echo "Intento ${attempt}/${maxAttempts}: Buscando proyecto ${PROJECT_NAME}:${PROJECT_VERSION}"
+
+                            def rawResponse = sh(
+                                script: """#!/bin/bash
+                                    curl -s \
+                                        --max-time 10 \
+                                        --connect-timeout 5 \
+                                        -w "\\n%{http_code}" \
+                                        -H "X-Api-Key: ${DTRACK_API_KEY}" \
+                                        "${DTRACK_URL}/api/v1/project/lookup?name=${PROJECT_NAME}&version=${PROJECT_VERSION}"
+                                """,
+                                returnStdout: true
+                            ).trim()
+
+                            def lines = rawResponse.readLines()
+                            def httpCode = lines.last()
+                            def body = lines.dropRight(1).join('\n')
+
+                            if (httpCode != "200") {
                                 if (attempt < maxAttempts) {
-                                    echo "Error temporal: ${e.message}, reintentando en ${waitSeconds}s..."
-                                    sleep(time: waitSeconds, unit: 'SECONDS')
-                                } else {
-                                    error("Error crítico después de ${maxAttempts} intentos: ${e.message}")
+                                    echo "API respondió ${httpCode}, reintentando en ${waitSeconds}s..."
+                                    sleep time: waitSeconds, unit: 'SECONDS'
+                                    continue
                                 }
+                                error("No se pudo obtener el proyecto (HTTP ${httpCode})")
+                            }
+
+                            writeFile file: 'project.json', text: body
+
+                            projectUuid = sh(
+                                script: "jq -r '.uuid // empty' project.json",
+                                returnStdout: true
+                            ).trim()
+
+                            if (projectUuid) {
+                                echo "Proyecto encontrado: UUID=${projectUuid}"
+                                break
+                            }
+
+                            if (attempt < maxAttempts) {
+                                echo "Proyecto aún no disponible, reintentando en ${waitSeconds}s..."
+                                sleep time: waitSeconds, unit: 'SECONDS'
+                            } else {
+                                error("Proyecto no encontrado después de ${maxAttempts} intentos")
                             }
                         }
-                        
+
+                        if (!projectUuid) {
+                            error("No se pudo obtener el UUID del proyecto en Dependency-Track")
+                        }
+
                         def critical = 0
                         def high = 0
-                        def metricsValid = false
-                        
+                        def metricsReady = false
+
                         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-                            try {
-                                echo "Intento ${attempt}/${maxAttempts}: Obteniendo métricas para ${projectUuid}"
-                                
-                                def metricsResponse = sh(
-                                    script: """#!/bin/bash
-                                        curl -s -w "%{http_code}" \
-                                            --max-time 10 \
-                                            --connect-timeout 5 \
-                                            -X GET "${DTRACK_URL}/api/v1/metrics/project/${projectUuid}/current" \
-                                            -H "X-Api-Key: \${DTRACK_API_KEY}"
-                                    """,
-                                    returnStdout: true
-                                )
-                                
-                                def httpCode = metricsResponse[-3..-1].trim()
-                                def response = metricsResponse[0..-4]
-                                
-                                if (httpCode != "200") {
-                                    if (attempt < maxAttempts) {
-                                        echo "API de métricas respondió con código ${httpCode}, reintentando en ${waitSeconds}s..."
-                                        sleep(time: waitSeconds, unit: 'SECONDS')
-                                        continue
-                                    } else {
-                                        error("API de métricas falló: HTTP ${httpCode}")
-                                    }
-                                }
-                                
-                                critical = sh(
-                                    script: """
-                                        echo '${response}' | jq '.critical // 0'
-                                    """,
-                                    returnStdout: true
-                                ).trim().toInteger()
-                                
-                                high = sh(
-                                    script: """
-                                        echo '${response}' | jq '.high // 0'
-                                    """,
-                                    returnStdout: true
-                                ).trim().toInteger()
-                                
-                                echo "Métricas obtenidas: Críticas=${critical}, Altas=${high}"
-                                
-                                if (critical >= 0 && high >= 0) {
-                                    metricsValid = true
-                                    break
-                                } else {
-                                    if (attempt < maxAttempts) {
-                                        echo "Métricas inválidas, reintentando en ${waitSeconds}s..."
-                                        sleep(time: waitSeconds, unit: 'SECONDS')
-                                    }
-                                }
-                                
-                            } catch (Exception e) {
+                            echo "Intento ${attempt}/${maxAttempts}: Obteniendo métricas del proyecto"
+
+                            def rawMetrics = sh(
+                                script: """#!/bin/bash
+                                    curl -s \
+                                        --max-time 10 \
+                                        --connect-timeout 5 \
+                                        -w "\\n%{http_code}" \
+                                        -H "X-Api-Key: ${DTRACK_API_KEY}" \
+                                        "${DTRACK_URL}/api/v1/metrics/project/${projectUuid}/current"
+                                """,
+                                returnStdout: true
+                            ).trim()
+
+                            def lines = rawMetrics.readLines()
+                            def httpCode = lines.last()
+                            def body = lines.dropRight(1).join('\n')
+
+                            if (httpCode != "200") {
                                 if (attempt < maxAttempts) {
-                                    echo "Error obteniendo métricas: ${e.message}, reintentando en ${waitSeconds}s..."
-                                    sleep(time: waitSeconds, unit: 'SECONDS')
-                                } else {
-                                    error("No se pudieron obtener métricas después de ${maxAttempts} intentos: ${e.message}")
+                                    echo "API métricas respondió ${httpCode}, reintentando en ${waitSeconds}s..."
+                                    sleep time: waitSeconds, unit: 'SECONDS'
+                                    continue
                                 }
+                                error("No se pudieron obtener métricas (HTTP ${httpCode})")
                             }
+
+                            writeFile file: 'metrics.json', text: body
+
+                            def validMetrics = sh(
+                                script: "jq -e 'has(\"critical\") and has(\"high\")' metrics.json",
+                                returnStatus: true
+                            )
+
+                            if (validMetrics != 0) {
+                                if (attempt < maxAttempts) {
+                                    echo "Métricas aún no calculadas, esperando..."
+                                    sleep time: waitSeconds, unit: 'SECONDS'
+                                    continue
+                                }
+                                error("Dependency-Track no entregó métricas válidas")
+                            }
+
+                            critical = sh(
+                                script: "jq '.critical // 0' metrics.json",
+                                returnStdout: true
+                            ).trim().toInteger()
+
+                            high = sh(
+                                script: "jq '.high // 0' metrics.json",
+                                returnStdout: true
+                            ).trim().toInteger()
+
+                            echo "Métricas obtenidas: Críticas=${critical}, Altas=${high}"
+                            metricsReady = true
+                            break
                         }
-                        
-                        if (!metricsValid) {
+
+                        if (!metricsReady) {
                             error("No se pudieron obtener métricas válidas después de ${maxAttempts} intentos")
                         }
+
                         
-                        // Evaluación final
                         echo "Métricas Dependency-Track finales:"
                         echo "  - Críticas: ${critical}"
                         echo "  - Altas: ${high}"
-                        
+
                         if (critical > 0 || high > 0) {
                             error("SECURITY GATE FALLIDO: Dependency-Track reportó ${critical} críticas y ${high} altas")
                         } else {
-                            echo "Security Gate: No hay vulnerabilidades críticas/altas en dependencias"
+                            echo "✅ Security Gate PASSED: No hay vulnerabilidades críticas ni altas"
                         }
                     }
                 }
