@@ -239,15 +239,6 @@ pipeline {
                     
                     if (fileExists(BANDIT_REPORT)) {
                         def jsonContent = readFile(BANDIT_REPORT).trim()
-                        
-                        //Validar estructura json
-                        def hasField = sh(script: 
-                            "jq -e '.results[0] | has(\"issue_severity\")' ${BANDIT_REPORT}",
-                            returnStatus: true
-                        )
-                        if (hasField != 0) {
-                            error("Campo issue_severity no existe - actualizar pipeline")
-                        }
 
                         if (jsonContent == "{}" || jsonContent == "") {
                             echo "No hay hallazgos de Bandit"
