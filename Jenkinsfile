@@ -293,14 +293,14 @@ pipeline {
                             echo "Intento ${attempt}/${maxAttempts}: Buscando proyecto ${PROJECT_NAME}:${PROJECT_VERSION}"
 
                             def rawResponse = sh(
-                                script: """#!/bin/bash
+                                script: '''#!/bin/bash
                                     curl -s \
                                         --max-time 10 \
                                         --connect-timeout 5 \
                                         -w "\\n%{http_code}" \
                                         -H "X-Api-Key: ${DTRACK_API_KEY}" \
-                                        "${DTRACK_URL}/api/v1/project/lookup?name=${PROJECT_NAME}&version=${PROJECT_VERSION}"
-                                """,
+                                        "$DTRACK_URL/api/v1/project/lookup?name=$PROJECT_NAME&version=$PROJECT_VERSION"
+                                ''',
                                 returnStdout: true
                             ).trim()
 
@@ -354,7 +354,7 @@ pipeline {
                                         --max-time 10 \
                                         --connect-timeout 5 \
                                         -w "\\n%{http_code}" \
-                                        -H "X-Api-Key: ${DTRACK_API_KEY}" \
+                                        -H "X-Api-Key: \${DTRACK_API_KEY}" \
                                         "${DTRACK_URL}/api/v1/metrics/project/${projectUuid}/current"
                                 """,
                                 returnStdout: true
