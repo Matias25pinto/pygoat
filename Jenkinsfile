@@ -349,14 +349,14 @@ pipeline {
                             echo "Intento ${attempt}/${maxAttempts}: Obteniendo métricas del proyecto"
 
                             def rawMetrics = sh(
-                                script: '''#!/bin/bash
+                                script: """#!/bin/bash
                                     curl -s \
                                         --max-time 10 \
                                         --connect-timeout 5 \
                                         -w "\\n%{http_code}" \
-                                        -H "X-Api-Key: ${DTRACK_API_KEY}" \
-                                        "$DTRACK_URL/api/v1/metrics/project/$projectUuid/current"
-                                ''',
+                                        -H "X-Api-Key: \${DTRACK_API_KEY}" \
+                                        "${DTRACK_URL}/api/v1/metrics/project/${projectUuid}/current"
+                                """,
                                 returnStdout: true
                             ).trim()
 
