@@ -226,52 +226,52 @@ pipeline {
             }
         }
 
-        // stage('Security Gate - Bandit') {
-        //     agent {
-        //         docker {
-        //             image 'ci-python-security:latest'
-        //             reuseNode true
-        //         }
-        //     }
-        //     steps {
-        //         script {
-        //             echo "Verificando security gate para Bandit..."
+        stage('Security Gate - Bandit') {
+            agent {
+                docker {
+                    image 'ci-python-security:latest'
+                    reuseNode true
+                }
+            }
+            steps {
+                script {
+                    echo "Verificando security gate para Bandit..."
                     
-        //             if (fileExists(BANDIT_REPORT)) {
-        //                 def jsonContent = readFile(BANDIT_REPORT).trim()
+                    if (fileExists(BANDIT_REPORT)) {
+                        def jsonContent = readFile(BANDIT_REPORT).trim()
 
-        //                 if (jsonContent == "{}" || jsonContent == "") {
-        //                     echo "No hay hallazgos de Bandit"
-        //                 } else {
+                        if (jsonContent == "{}" || jsonContent == "") {
+                            echo "No hay hallazgos de Bandit"
+                        } else {
 
-        //                     def highCountJq = sh(
-        //                         script: '''
-        //                             jq '.metrics._totals["SEVERITY.HIGH"] // 0' $BANDIT_REPORT
-        //                         ''',
-        //                         returnStdout: true
-        //                     ).trim().toInteger()
+                            def highCountJq = sh(
+                                script: '''
+                                    jq '.metrics._totals["SEVERITY.HIGH"] // 0' $BANDIT_REPORT
+                                ''',
+                                returnStdout: true
+                            ).trim().toInteger()
                             
-        //                     echo "Resumen de Bandit: "
-        //                     echo "  - Vulnerabilidades HIGH (graves): ${highCountJq}"
+                            echo "Resumen de Bandit: "
+                            echo "  - Vulnerabilidades HIGH (graves): ${highCountJq}"
                             
-        //                     if (highCountJq > 0) {
-        //                         // Mostrar detalles de las vulnerabilidades HIGH
-        //                         sh """
-        //                             echo "VULNERABILIDADES HIGH ENCONTRADAS:"
-        //                             echo "=== DETALLES ==="
-        //                             jq -r '.results[] | select(.issue_severity == "HIGH") | "- \\(.test_id): \\(.issue_text) (línea \\(.line_number))"' ${BANDIT_REPORT} || true
-        //                         """
-        //                         error("SECURITY GATE FALLIDO: Bandit reportó ${highCountJq} altas")
-        //                     } else {
-        //                         echo "✅ Security Gate: PASSED"
-        //                     }
-        //                 }
-        //             } else {
-        //                 echo "No se encontró reporte de Bandit"
-        //             }
-        //         }
-        //     }
-        // }
+                            if (highCountJq > 0) {
+                                // Mostrar detalles de las vulnerabilidades HIGH
+                                sh """
+                                    echo "VULNERABILIDADES HIGH ENCONTRADAS:"
+                                    echo "=== DETALLES ==="
+                                    jq -r '.results[] | select(.issue_severity == "HIGH") | "- \\(.test_id): \\(.issue_text) (línea \\(.line_number))"' ${BANDIT_REPORT} || true
+                                """
+                                error("SECURITY GATE FALLIDO: Bandit reportó ${highCountJq} altas")
+                            } else {
+                                echo "✅ Security Gate: PASSED"
+                            }
+                        }
+                    } else {
+                        echo "No se encontró reporte de Bandit"
+                    }
+                }
+            }
+        }
 
         stage('Security Gate - Dependency-Track') {
             agent {
